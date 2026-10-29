@@ -5,7 +5,7 @@ import { clamp, smooth } from '../util/math.js';
  * Fase III: interacción bidireccional entre pigmento y estructura.
  *  - Un frente de integración se expande desde el punto elegido, orientado por el gesto.
  *  - Las ramas que crecen depositan pigmento (los bordes se vuelven ramificaciones).
- *  - El enjambre y la red de physarum pintan pigmento complementario.
+ *  - La reacción-difusión y la red de physarum pintan pigmento complementario.
  *  - Cada trazo recibe una respuesta en canon: un eco espejado, en color armónico.
  *  - El pigmento curva el campo, el campo guía la difusión (bucle en los shaders).
  */

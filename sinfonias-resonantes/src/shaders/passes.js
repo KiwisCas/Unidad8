@@ -60,6 +60,8 @@ uniform float uDryAdvect;
 uniform float uNetDeposit;
 uniform vec3 uNetA;
 uniform vec4 uDissolve;
+uniform sampler2D tRD;
+uniform float uRDDeposit;
 ${NOISE}
 const vec2 OFF[8] = vec2[8](vec2(1.0, 0.0), vec2(-1.0, 0.0), vec2(0.0, 1.0), vec2(0.0, -1.0),
                             vec2(1.0, 1.0), vec2(-1.0, 1.0), vec2(1.0, -1.0), vec2(-1.0, -1.0));
@@ -94,7 +96,7 @@ void main(){
     vec4 N = texture(tWet, uv0 + o);
     float pN = perm(texture(tPaper, vUv + o), texture(tDry, vUv + o).a);
     float al = abs(dot(normalize(OFF[i]), fdir));
-    float g = WT[i]*mix(1.0, 0.08 + 2.4*al*al*al*al, an);
+    float g = WT[i]*mix(1.0, 0.4 + 1.2*al*al, an);
     float f = 0.055*0.5*(pC + pN)*g*(N.a - w);
     f *= smoothstep(0.003, 0.04, max(N.a, w));
     // Frente húmedo sobre papel seco: el agua sólo cruza si la lámina vecina
@@ -159,6 +161,15 @@ void main(){
     float dl = dot(D.rgb + P, vec3(0.3333));
     float tone = 0.5 + 0.5*sin(q.x*5.0 + q.y*3.0);
     pAdd += uNetA*(0.7 + 0.6*tone)*net*(1.0 - smoothstep(0.15, 0.7, dl))*uNetDeposit*F.b*0.0012;
+  }
+  // Fase III: los patrones se vuelven pigmento del mismo tono que la mancha que los aloja.
+  if (uRDDeposit > 0.0){
+    float rv = smoothstep(0.15, 0.4, texture(tRD, vUv).g);
+    vec3 Ah = D.rgb + P;
+    float dh = dot(Ah, vec3(0.3333));
+    // Sólo refuerza dentro de manchas existentes: nunca las expande (evita el crecimiento desbocado).
+    float inside = smoothstep(0.12, 0.25, dh)*(1.0 - smoothstep(0.6, 1.1, dh));
+    pAdd += Ah/max(dh, 0.05)*rv*inside*uRDDeposit*F.b*0.0006;
   }
   vec4 dep4 = texture(tDeposit, vUv);
   pAdd += dep4.rgb*uDepositAmt;

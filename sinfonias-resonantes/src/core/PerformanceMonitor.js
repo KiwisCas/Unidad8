@@ -26,7 +26,7 @@ export class PerformanceMonitor {
 }
 
 export const QUALITY = [
-  { pixelRatio: 2, simMax: 1100, substeps: 2, footEvery: 2 },
-  { pixelRatio: 1.5, simMax: 860, substeps: 2, footEvery: 3 },
-  { pixelRatio: 1, simMax: 680, substeps: 1, footEvery: 4 },
+  { pixelRatio: 2, simMax: 1100, substeps: 2, footEvery: 2, rdIterations: 4 },
+  { pixelRatio: 1.5, simMax: 860, substeps: 2, footEvery: 3, rdIterations: 3 },
+  { pixelRatio: 1, simMax: 680, substeps: 1, footEvery: 4, rdIterations: 3 },
 ];

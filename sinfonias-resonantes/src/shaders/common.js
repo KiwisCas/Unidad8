@@ -47,33 +47,6 @@ vec3 hybridTint(vec3 A, float s, float k){
 }
 `;
 
-export const NOISE3 = /* glsl */ `
-float hash13(vec3 p3){
-  p3 = fract(p3*0.1031);
-  p3 += dot(p3, p3.zyx + 31.32);
-  return fract((p3.x + p3.y)*p3.z);
-}
-float vnoise3(vec3 p){
-  vec3 i = floor(p); vec3 f = fract(p);
-  vec3 u = f*f*(3.0 - 2.0*f);
-  float a = hash13(i), b = hash13(i + vec3(1,0,0)), c = hash13(i + vec3(0,1,0)), d = hash13(i + vec3(1,1,0));
-  float e = hash13(i + vec3(0,0,1)), g = hash13(i + vec3(1,0,1)), h = hash13(i + vec3(0,1,1)), k = hash13(i + vec3(1,1,1));
-  return mix(mix(mix(a, b, u.x), mix(c, d, u.x), u.y), mix(mix(e, g, u.x), mix(h, k, u.x), u.y), u.z);
-}
-vec3 noise3v(vec3 p){
-  return vec3(vnoise3(p), vnoise3(p + vec3(31.4, 7.1, 3.3)), vnoise3(p + vec3(-5.2, 19.7, 11.9)));
-}
-// Campo de flujo 3D sin divergencia (rotacional de un potencial vectorial).
-vec3 curl3(vec3 p){
-  const float e = 0.08;
-  vec3 dx = vec3(e, 0, 0), dy = vec3(0, e, 0), dz = vec3(0, 0, e);
-  vec3 x0 = noise3v(p - dx), x1 = noise3v(p + dx);
-  vec3 y0 = noise3v(p - dy), y1 = noise3v(p + dy);
-  vec3 z0 = noise3v(p - dz), z1 = noise3v(p + dz);
-  return vec3((y1.z - y0.z) - (z1.y - z0.y), (z1.x - z0.x) - (x1.z - x0.z), (x1.y - x0.y) - (y1.x - y0.x))/(2.0*e);
-}
-`;
-
 // Paletas: una matriz sobre la absorbancia + color de papel / fondo nocturno.
 // Un frente (uPalWave) lleva de la paleta 0 a la 1. Requiere NOISE y COMMON.
 export const PALETTE = /* glsl */ `

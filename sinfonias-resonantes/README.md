@@ -29,10 +29,10 @@ usa Web Audio API directamente.
 | Giro brusco del trazo | Acumulación de pigmento en el giro |
 | Clic breve (fase I) | Gota de agua limpia: floración sobre el pigmento |
 | Mantener clic ~1 s sin moverse (fase I) | Señal de tensión → **ruptura** (si sueltas antes, se disipa) |
-| Mover el mouse (fase II) | Lento: el enjambre y la red se acercan y orbitan · rápido: se dispersan y salen ondas · giros: vórtices que remueven el cuadro |
+| Mover el mouse (fase II) | Lento: siembra patrones y atrae la red · rápido: disuelve patrones, dispersa la red y lanza ondas · giros: vórtices que remueven el cuadro |
 | Clic breve (fase II/III) | Perturbación localizada (onda + vórtice) |
 | Mantener clic ~1 s en zona libre (fase II) | **Encuentro**. En zonas densas la carga es más lenta. Durante la apertura, mover despacio orienta la expansión |
-| Mover el mouse (fase III) | Marcas híbridas: la red y el enjambre nacen sobre el trazo y lo acompañan, un eco en canon responde y los bordes brotan en ramas |
+| Mover el mouse (fase III) | Marcas híbridas: el trazo siembra patrones y red, un eco en canon responde y los bordes brotan en ramas |
 | Llenar el lienzo (fase III) | Cambio de paleta en un frente que sale del último gesto |
 | Quieto | La obra sigue: el agua seca, las estructuras respiran, nuevas ramas brotan solas (fase III) |
 | `R` (dos veces) | Reiniciar |
@@ -62,13 +62,13 @@ src/
     RegionAnalyzer.js             lectura reducida del lienzo y segmentación en zonas
     DigitalStructureSystem.js     pliegues, ondas, ramificaciones de la fase III
     PhysarumSystem.js             red de physarum (agentes + mapa de rastro en GPU)
-    SwarmSystem.js                enjambre 3D con steering behaviours (GPGPU)
+    ReactionSystem.js             reacción-difusión Gray-Scott que crece desde el pigmento
     PaletteController.js          paletas y frente de cambio de color
     HybridSystem.js               interacción bidireccional (fase III)
     structures/                   Structure (3 modos de dibujo), Branches
   visual/VisualComposition.js     cámara, luz, superficie del lienzo, huellas cenitales
   audio/AudioController.js        síntesis procedural
-  shaders/                        GLSL: common, passes, canvas, structures, physarum, swarm
+  shaders/                        GLSL: common, passes, canvas, structures, physarum, reaction
 ```
 
 ## Decisiones técnicas
@@ -102,21 +102,23 @@ empiece a comportarse de otra manera.
   topografía 3D con luz rasante, con curvas de nivel y una ligera separación de canales cromáticos.
 - *Physarum* (65 536 agentes en GPU, modelo de Jones): nacen sobre las manchas, usan el pigmento como
   alimento y tejen una red luminosa que conecta los trazos. El cursor lento los atrae.
-- *Enjambre 3D* (16 384 agentes, GPGPU con MRT): escamas que conservan el color de la mancha donde
-  nacieron y navegan con *steering behaviours*: siguen un flow field 3D (rotacional de ruido),
-  mantienen una banda de altura, buscan y orbitan el cursor lento, huyen del rápido.
+- *Reacción-difusión* (Gray-Scott en régimen de laberinto / huella dactilar, 4 pasos lentos por
+  cuadro): el frente de la ruptura siembra vetas en las manchas y desde ahí se extienden por el papel.
+  La difusión se alinea con el flujo (vetas que fluyen), la escala varía por zonas, el pigmento
+  nutre el crecimiento y el tiempo corre ~3× más despacio sobre papel desnudo, así que avanzan desde
+  lo pintado de forma gradual. Llevan consigo el tono de la mancha donde nacieron y cada zona envejece
+  y se retira tras 40–60 s: la obra crece y se renueva en ciclos sin llenarse nunca del todo.
 - *Pliegues* del lienzo siguiendo el eje de las manchas dominantes.
 
 **Encuentro (fase III).** El frente de integración se expande desde el punto elegido. Dentro de él:
 - el papel recupera la luz y la red de physarum se vuelve tinta que rellena los huecos entre manchas;
-- los agentes nacen sobre el trazo reciente; el enjambre *sigue su trayectoria* en carriles paralelos,
-  se posa y una parte deja pigmento complementario;
+- el trazo reciente siembra vetas de reacción-difusión de su color y atrae agentes de la red;
 - cada trazo recibe una respuesta en *canon*: un eco espejado 1,3 s después, en color armónico
   (el tipo de espejo cambia con cada paleta);
 - los bordes del trazo brotan en ramificaciones pigmentadas;
 - el campo guía la difusión y el pigmento curva el campo (bucle de retroalimentación);
 - **cuando el lienzo supera ~42 % de cobertura**, un frente sale del último gesto y traslada toda la
-  obra a la siguiente paleta (papel → marea → nocturno → tinta → brasas), aclarando lo anterior para
+  obra a la siguiente paleta (papel → terracota → nocturno → tinta → brasas), aclarando lo anterior para
   abrir espacio. Las paletas son bitonos sobre la absorbancia, por lo que siempre son armónicas.
 
 **Sonido.** Fase I: aire filtrado y resonancias, con tonos orgánicos cuya altura depende de la

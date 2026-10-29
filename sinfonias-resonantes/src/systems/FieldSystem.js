@@ -4,7 +4,7 @@ import { fieldFrag } from '../shaders/passes.js';
 
 /**
  * Campo vectorial compartido: lo deforman el gesto, los vórtices y (en la fase III)
- * el propio pigmento. Guía la difusión, curva las ramas, guía al enjambre y marmoliza el cuadro.
+ * el propio pigmento. Guía la difusión, curva las ramas, arrastra los patrones y marmoliza el cuadro.
  */
 export class FieldSystem {
   constructor(renderer, floatType) {

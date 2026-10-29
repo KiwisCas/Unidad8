@@ -4,7 +4,7 @@ import { clamp, easeInOut, smooth, mulberry32 } from '../util/math.js';
 /**
  * Estructura del lienzo: pliegues que siguen las manchas dominantes, ondas de
  * tensión y las ramificaciones pigmentadas que brotan de los trazos en la fase III.
- * (La red y el enjambre viven en PhysarumSystem y SwarmSystem.)
+ * (La red y los patrones viven en PhysarumSystem y ReactionSystem.)
  */
 export class DigitalStructureSystem {
   constructor(composition) {

@@ -14,7 +14,7 @@ function duotone(v, keep = 0.35) {
 
 const PALETTES = [
   { name: 'papel', M: I, paper: [0.955, 0.94, 0.905], ground: [0.025, 0.03, 0.07], night: 0, ink: DIGITAL[2].A },
-  { name: 'marea', M: duotone([1.5, 0.5, 0.28], 0.45), paper: [0.955, 0.945, 0.92], ground: [0.02, 0.04, 0.06], night: 0, ink: DIGITAL[2].A },
+  { name: 'terracota', M: duotone([0.35, 0.95, 1.25], 0.45), paper: [0.965, 0.945, 0.915], ground: [0.04, 0.03, 0.035], night: 0, ink: DIGITAL[1].A },
   { name: 'nocturno', M: I, paper: [0.955, 0.94, 0.905], ground: [0.018, 0.026, 0.065], night: 1, ink: DIGITAL[0].A },
   { name: 'tinta', M: duotone([1.55, 1.25, 0.35]), paper: [0.97, 0.945, 0.885], ground: [0.03, 0.03, 0.06], night: 0, ink: DIGITAL[3].A },
   { name: 'brasas', M: duotone([0.2, 0.85, 1.6], 0.4), paper: [0.95, 0.93, 0.92], ground: [0.05, 0.022, 0.045], night: 1, ink: DIGITAL[3].A },

@@ -28,6 +28,7 @@ export class WatercolorSystem {
       uSegC: { value: this.segC }, uDrop: { value: this.drop },
       tTrail: { value: this.blank }, uDryAdvect: { value: 0 }, uNetDeposit: { value: 0 },
       uNetA: { value: new THREE.Vector3(1, 1, 1) }, uDissolve: { value: new THREE.Vector4(0, 0, 0, 0) },
+      tRD: { value: this.blank }, uRDDeposit: { value: 0 },
     };
     this.simPass = new FullscreenPass(rawMaterial(simFrag, this.u));
     this.paperU = { uAspect: { value: 1 } };
@@ -108,6 +109,8 @@ export class WatercolorSystem {
     u.uDryAdvect.value = opts.dryAdvect || 0;
     u.uNetDeposit.value = opts.netDeposit || 0;
     u.tTrail.value = opts.trail || this.blank;
+    u.tRD.value = opts.rd || this.blank;
+    u.uRDDeposit.value = opts.rdDeposit || 0;
     if (opts.netA) u.uNetA.value.fromArray(opts.netA);
     if (opts.dissolve) u.uDissolve.value.copy(opts.dissolve); else u.uDissolve.value.w = 0;
     for (let i = 0; i < substeps; i++) {

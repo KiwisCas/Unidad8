@@ -28,6 +28,7 @@ export class VisualComposition {
       uLight: { value: new THREE.Vector3(-0.45, 0.55, 0.7).normalize() },
       tWet: { value: null }, tDry: { value: null }, tField: { value: null }, tPaper: { value: null },
       tTrail: { value: null }, uRelief: { value: 0 }, uNetGlow: { value: 0 },
+      tRD: { value: null }, uRDTexel: { value: new THREE.Vector2(1 / 560, 1 / 330) }, uRDVis: { value: 0 },
     };
     // Las paletas añaden sus uniforms al registro antes de crear cualquier material.
     this.palette = new PaletteController(this.shared);

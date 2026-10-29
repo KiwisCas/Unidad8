@@ -7,7 +7,7 @@ import { DigitalStructureSystem } from '../systems/DigitalStructureSystem.js';
 import { HybridSystem } from '../systems/HybridSystem.js';
 import { Brush } from '../systems/Brush.js';
 import { PhysarumSystem } from '../systems/PhysarumSystem.js';
-import { SwarmSystem } from '../systems/SwarmSystem.js';
+import { ReactionSystem } from '../systems/ReactionSystem.js';
 import { TransitionController } from './TransitionController.js';
 import { PerformanceMonitor, QUALITY } from './PerformanceMonitor.js';
 import { InputController } from '../input/InputController.js';
@@ -37,7 +37,7 @@ export class ExperienceController {
     this.audio = new AudioController();
     this.brush = new Brush();
     this.physarum = new PhysarumSystem(r, this.floatType);
-    this.swarm = new SwarmSystem(r, this.composition, this.floatType);
+    this.reaction = new ReactionSystem(r, this.floatType);
     this.palette = this.composition.palette;
     this.perf = new PerformanceMonitor(() => this.resize());
 
@@ -146,7 +146,7 @@ export class ExperienceController {
     this.digital.clear();
     this.hybrid.reset();
     this.physarum.reset();
-    this.swarm.reset();
+    this.reaction.reset();
     this.palette.reset();
     this.strokePts = [];
     this.transition.reset();
@@ -171,7 +171,8 @@ export class ExperienceController {
     this.composition.setPaper(this.watercolor.paper, paperW, Math.round(paperW / aspect));
     this.field.resize(aspect);
     this.physarum.resize(aspect);
-    this.swarm.setDensity([1, 0.75, 0.5][this.perf.tier]);
+    this.reaction.resize(aspect);
+    this.composition.shared.uRDTexel.value.fromArray(this.reaction.texel);
     this.footRT?.dispose();
     this.footRT = new THREE.WebGLRenderTarget(Math.round(simW / 2), Math.round(simH / 2), {
       type: this.floatType, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false, generateMipmaps: false,
@@ -206,7 +207,7 @@ export class ExperienceController {
     }
     while (pts.length && this.time - pts[0][2] > 2.5) pts.shift();
     this.physarum.setStrokes(pts);
-    this.swarm.setStrokes(pts);
+    this.reaction.setStrokes(pts);
   }
 
   loop(nowMs) {
@@ -293,10 +294,10 @@ export class ExperienceController {
     if (this.digital.active) this.digital.update(dt, now, { mouse: pointerQ, vel: m.vel, speed: m.speed, hybrid: hyb });
     this.ambient(dt, now);
 
-    // --- agentes autónomos: red de physarum y enjambre
+    // --- sistemas autónomos: red de physarum y reacción-difusión
     this.updateStrokeTrail(dt, gesture, phase);
     const live = phase >= 2;
-    // Cursor lento = atraer / orbitar; rápido = dispersar; quieto = dejarlos ser.
+    // Cursor lento = atraer / sembrar; rápido = dispersar / disolver; quieto = dejarlos ser.
     const mode = !pointerQ || m.idle > 0.4 ? 0 : m.speed > 0.9 ? -1 : m.speed > 0.02 ? 1 : 0;
     this.agentMouse.set(pointerQ ? pointerQ[0] : -9, pointerQ ? pointerQ[1] : -9, m.speed, mode);
     const growR = live ? (now - this.rupture.start) * 0.28 : 0;
@@ -305,7 +306,9 @@ export class ExperienceController {
       wet: wc.wet, dry: wc.dry, field: this.field.texture,
     };
     this.physarum.update(dt, { ...agents, spawnRate: 0.04, strokeSpawn: phase === 3 && gesture ? 0.12 : 0 });
-    this.swarm.update(dt, { ...agents, spawnRate: phase === 3 ? 0.002 : 0.012, strokeSpawn: phase === 3 && gesture ? 0.35 : 0 });
+    this.reaction.update(dt, { ...agents, seedRate: phase === 3 ? 0.001 : 0.003 }, Q.rdIterations);
+    sh.tRD.value = this.reaction.alive > 0 ? this.reaction.texture : null;
+    sh.uRDVis.value = smooth(0.2, 1, tech) * (1 - 0.35 * hyb);
     sh.uNetGlow.value = smooth(0.1, 0.8, tech);
     sh.uRelief.value = tech * 0.034 * (1 - 0.65 * hyb);
     sh.tTrail.value = this.physarum.trails ? this.physarum.trail : null;
@@ -339,11 +342,12 @@ export class ExperienceController {
 
     // --- acuarela
     wc.step(dt, this.field.texture, foot, {
-      advect: hyb * 0.22, aniso: hyb, depositAmt,
+      advect: hyb * 0.22, aniso: hyb * 0.6, depositAmt,
       // Fase II: el cuadro se marmoliza con el campo (y el gesto lo puede remover).
       dryAdvect: tech * 0.4 * (1 - 0.7 * hyb),
       trail: this.physarum.trails ? this.physarum.trail : null,
       netDeposit: hyb, netA: this.palette.current.ink,
+      rd: null, rdDeposit: 0,
       dissolve: this.palette.transitioning ? this.palette.dissolve : null,
     }, Q.substeps);
     sh.tWet.value = wc.wet; sh.tDry.value = wc.dry;

@@ -1,5 +1,6 @@
 // Superficie del lienzo: papel + pigmento + relieve + red de physarum + paletas.
 import { NOISE, COMMON, WAVE, FOLDS, PALETTE } from './common.js';
+import { RD_HUE } from './reaction.js';
 
 const UNIFORMS = /* glsl */ `
 uniform float uAspect;
@@ -20,6 +21,9 @@ uniform sampler2D tDry;
 uniform sampler2D tField;
 uniform sampler2D tPaper;
 uniform sampler2D tTrail;
+uniform sampler2D tRD;
+uniform vec2 uRDTexel;
+uniform float uRDVis;
 `;
 
 export const canvasVert = UNIFORMS + NOISE + WAVE + FOLDS + /* glsl */ `
@@ -44,6 +48,8 @@ float otherDisp(vec2 q){
     float d = densAt(q)*0.4 + (densAt(q + vec2(r, 0.0)) + densAt(q - vec2(r, 0.0)) + densAt(q + vec2(0.0, r)) + densAt(q - vec2(0.0, r)))*0.15;
     z += (1.0 - exp(-d*1.6))*uRelief;
     z += (1.0 - exp(-texture(tTrail, uv).r*0.04))*uRelief*0.18;
+    // Los patrones de reacción-difusión se graban en relieve sobre la mancha.
+    z += smoothstep(0.15, 0.4, texture(tRD, uv).g)*uRelief*0.1*uRDVis;
   }
   float hyb = texture(tField, uv).b*uHybrid;
   z += hyb*densAt(q)*0.006;
@@ -66,7 +72,7 @@ void main(){
 }
 `;
 
-export const canvasFrag = UNIFORMS + NOISE + COMMON + FOLDS + PALETTE + /* glsl */ `
+export const canvasFrag = UNIFORMS + NOISE + COMMON + FOLDS + PALETTE + RD_HUE + /* glsl */ `
 uniform vec2 uPaperTexel;
 varying vec2 vUv;
 varying vec2 vGradOther;
@@ -119,6 +125,22 @@ void main(){
   float wet = smoothstep(0.03, 0.5, W.a);
   col *= 1.0 - 0.05*wet*(1.0 - night);
   col += wet*0.035*smoothstep(0.02, 0.08, relief);
+
+  // Reacción-difusión: vetas finas que fluyen desde las manchas hacia el papel,
+  // con el tono que transportan desde su origen. Emiten de noche, entintan de día.
+  vec4 RDs = texture(tRD, uv);
+  float rv = RDs.g;
+  float pat = smoothstep(0.18, 0.42, rv)*uRDVis;
+  vec2 rg = vec2(texture(tRD, uv + vec2(uRDTexel.x, 0.0)).g - texture(tRD, uv - vec2(uRDTexel.x, 0.0)).g,
+                 texture(tRD, uv + vec2(0.0, uRDTexel.y)).g - texture(tRD, uv - vec2(0.0, uRDTexel.y)).g);
+  float rEdge = smoothstep(0.05, 0.3, length(rg))*uRDVis;
+  // Las zonas viejas se desvanecen antes de retirarse.
+  float rLife = 1.0 - smoothstep(35.0, 58.0, RDs.b);
+  vec3 rA = mix(palApply(rdHueA(RDs.a), pk), A/max(dens, 0.05)*0.9, 0.35*smoothstep(0.05, 0.3, dens));
+  vec3 rHue = pigHue(rA);
+  vec3 rNight = col + rHue*(pat*0.22 + rEdge*0.45)*rLife;
+  vec3 rDay = col*exp(-rA*(pat*0.28 + rEdge*0.18)*rLife);
+  col = mix(rDay, rNight, night);
 
   // Pliegues + relieve: luz rasante, más dramática de noche.
   float crease, cx, cy;
