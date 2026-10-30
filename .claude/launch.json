@@ -6,6 +6,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["--prefix", "sinfonias-resonantes", "run", "dev"],
       "port": 5173
+    },
+    {
+      "name": "pages-preview",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["--prefix", "sinfonias-resonantes", "vite", "preview", "sinfonias-resonantes", "--base", "/Unidad8/", "--port", "4173"],
+      "port": 4173
     }
   ]
 }

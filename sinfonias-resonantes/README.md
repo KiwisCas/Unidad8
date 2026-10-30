@@ -20,6 +20,26 @@ Dependencias: `three@0.169.0` (render, geometría, shaders) y `vite@5.4.10` (ser
 No se usa p5.js: la simulación de pigmento corre en GLSL sobre texturas de Three.js, y el sonido
 usa Web Audio API directamente.
 
+## Publicar en GitHub Pages
+
+El workflow `.github/workflows/deploy.yml` (en la raíz del repositorio) compila y publica la obra
+en cada push a `main`, o a mano desde la pestaña *Actions* (*Run workflow*).
+
+1. En GitHub: *Settings → Pages → Build and deployment → Source:* **GitHub Actions** (una sola vez).
+2. Sube los cambios a `main`.
+3. La obra queda en `https://<usuario>.github.io/<repositorio>/`.
+
+El workflow pasa `BASE_PATH=/<repositorio>/` a Vite para que las rutas funcionen bajo esa
+subcarpeta. Pages sirve por HTTPS, que es lo que exige el navegador para usar la cámara (manos).
+`node_modules/` y `dist/` no se versionan: el workflow instala con `npm ci` y compila en cada
+despliegue.
+
+Para probar localmente el resultado tal como se publicará:
+
+```bash
+BASE_PATH=/Unidad8/ npm run build && npx vite preview --base /Unidad8/
+```
+
 ## Controles
 
 | Acción | Comportamiento |
