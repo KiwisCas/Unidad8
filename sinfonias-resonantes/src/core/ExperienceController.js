@@ -35,7 +35,10 @@ export class ExperienceController {
     this.transition = new TransitionController();
     this.input = new InputController(canvas);
     this.audio = new AudioController();
-    this.brush = new Brush();
+    // Un pincel por fuente: el ratón y cada mano pintan su propio trazo a la vez.
+    this.brushes = new Map();
+    this.streamList = [];
+    this.gestureList = [];
     this.physarum = new PhysarumSystem(r, this.floatType);
     this.reaction = new ReactionSystem(r, this.floatType);
     this.palette = this.composition.palette;
@@ -56,7 +59,6 @@ export class ExperienceController {
     this.ambientT = 0;
     this.resetArmed = -99;
     this.strokePts = [];
-    this.strokeTravel = 0;
     this.coverageT = 0;
     this.lastShift = -99;
     this.rupture = { origin: [0, 0], start: 0 };
@@ -78,7 +80,7 @@ export class ExperienceController {
     this.audio.start();
     this.overlay.hideIntro();
     this.overlay.setPhase(1);
-    this.brush.reset();
+    this.brushes.forEach((b) => b.reset());
   }
 
   /** Activa / desactiva las manos (cámara). Todo se procesa en el equipo. */
@@ -236,7 +238,7 @@ export class ExperienceController {
     this.gestures.reset();
     this.poseHold = false;
     this.transition.reset();
-    this.brush.reset();
+    this.brushes.forEach((b) => b.reset());
     this.analysis = null;
     this.resetArmed = -99;
     this.audio.phaseStart(1);
@@ -276,14 +278,21 @@ export class ExperienceController {
     this.watercolor.addDrop(b[0] - b[2] * 0.01, b[1] - b[3] * 0.01, 0.028, 0.3);
   }
 
-  /** Puntos recientes del gesto: alimentan el seguimiento de trayectoria y los nacimientos. */
-  updateStrokeTrail(dt, gesture, phase) {
+  brushFor(id) {
+    let b = this.brushes.get(id);
+    if (!b) { b = new Brush(); this.brushes.set(id, b); }
+    return b;
+  }
+
+  /** Puntos recientes de todos los trazos: alimentan la red y la reacción-difusión. */
+  updateStrokeTrail(dt, gestures, phase) {
     const pts = this.strokePts;
-    if (gesture && phase >= 2) {
-      this.strokeTravel += gesture.total;
-      if (!pts.length || this.strokeTravel > 0.025) {
-        this.strokeTravel = 0;
-        pts.push([gesture.pos[0], gesture.pos[1], this.time, gesture.dir[0], gesture.dir[1]]);
+    if (phase >= 2) {
+      for (const g of gestures) {
+        g.brush.trailTravel = (g.brush.trailTravel || 0) + g.total;
+        if (pts.length && g.brush.trailTravel <= 0.025) continue;
+        g.brush.trailTravel = 0;
+        pts.push([g.pos[0], g.pos[1], this.time, g.dir[0], g.dir[1]]);
         if (pts.length > 16) pts.shift();
       }
     }
@@ -304,12 +313,7 @@ export class ExperienceController {
 
     // --- entrada -> coordenadas de lienzo
     this.hands.update(nowMs);
-    if (this.input.consumeBreak()) this.brush.reset();
-    const pts = [];
-    for (const s of this.input.consumeSamples()) {
-      const q = comp.screenToQ(s[0], s[1], [0, 0]);
-      if (q) pts.push(q);
-    }
+    const streams = this.input.consumeStreams(this.streamList);
     const p = this.input.pointer;
     const pointerQ = p.inside ? comp.screenToQ(p.x, p.y, this.pointerQ) : null;
     this.ndc[0] = (p.x / comp.width) * 2 - 1;
@@ -322,11 +326,29 @@ export class ExperienceController {
     tr.update(dt, now);
     const { tech, hybrid: hyb, phase } = tr;
 
-    // --- pincel
-    let gesture = null;
+    // --- pinceles: uno por fuente (ratón y cada mano). "gesture" es el trazo principal
+    // (el que más se mueve); "gestures" son todos los de este cuadro.
+    const gestures = this.gestureList;
+    gestures.length = 0;
+    let gesture = null, speed = 0;
     if (this.started) {
       const amount = phase === 1 ? 1 : phase === 2 ? Math.max(0, 1 - tech * 2.5) : hyb;
-      gesture = this.brush.update(dt, pts, { amount, hybrid: phase === 3 ? hyb : 0, fine: this.input.pointer.fine }, wc);
+      for (const st of streams) {
+        const b = this.brushFor(st.id);
+        if (st.brk) b.reset();
+        const pts = [];
+        for (const s of st.pts) {
+          const q = comp.screenToQ(s[0], s[1], [0, 0]);
+          if (q) pts.push(q);
+        }
+        const g = b.update(dt, pts, { amount, hybrid: phase === 3 ? hyb : 0, fine: st.fine }, wc);
+        if (g) {
+          g.brush = b;
+          gestures.push(g);
+          if (!gesture || g.total > gesture.total) gesture = g;
+        }
+        speed = Math.max(speed, b.speed);
+      }
     }
     const m = this.mouse;
     if (gesture) {
@@ -339,25 +361,25 @@ export class ExperienceController {
       m.vel[0] *= k; m.vel[1] *= k;
       m.idle += dt;
     }
-    m.speed = this.brush.speed;
+    m.speed = speed;
     const agT = smooth(0.05, 1.2, m.speed);
     m.agitation += (agT - m.agitation) * Math.min(1, dt * (agT > m.agitation ? 4 : 0.6));
 
     // --- fase III: el gesto ondula y tuerce. En la fase II apenas afecta: sólo engendra líneas.
-    if (gesture && phase === 3) {
-      const [x, y] = gesture.pos;
-      if (gesture.speed > 1.1 && now - m.lastWave > 0.4) {
-        this.digital.addWave(x, y, 0.004 + 0.003 * Math.min(gesture.speed - 1.1, 2), now);
-        this.audio.wave(0.35 + 0.25 * Math.min(gesture.speed - 1.1, 1.5));
-        m.lastWave = now;
+    for (const g of gestures) {
+      const [x, y] = g.pos;
+      if (phase === 3) {
+        if (g.speed > 1.1 && now - m.lastWave > 0.4) {
+          this.digital.addWave(x, y, 0.004 + 0.003 * Math.min(g.speed - 1.1, 2), now);
+          this.audio.wave(0.35 + 0.25 * Math.min(g.speed - 1.1, 1.5));
+          m.lastWave = now;
+        }
+        if (Math.abs(g.turn) > 0.6 && g.speed > 0.2) {
+          this.field.addVortex(x, y, Math.sign(g.turn) * 0.05 * Math.min(g.speed, 2), 0.07);
+        }
       }
-      if (Math.abs(gesture.turn) > 0.6 && gesture.speed > 0.2) {
-        this.field.addVortex(x, y, Math.sign(gesture.turn) * 0.05 * Math.min(gesture.speed, 2), 0.07);
-      }
-    }
-    if (gesture && this.started) {
-      const dens = this.analysis ? this.analysis.densAt(gesture.pos[0], gesture.pos[1]) : 0.3;
-      this.audio.stroke({ speed: gesture.speed, x: gesture.pos[0] / this.aspect, y: gesture.pos[1], density: dens, accent: gesture.accent });
+      const dens = this.analysis ? this.analysis.densAt(x, y) : 0.3;
+      this.audio.stroke({ speed: g.speed, x: x / this.aspect, y, density: dens, accent: g.accent });
     }
 
     // --- uniforms compartidos
@@ -378,14 +400,14 @@ export class ExperienceController {
     fu.uCharge.value.copy(sh.uCharge.value);
     // Análisis periódico en segundo plano (umbral, gotas ambientales, cobertura).
     if (this.started && now - (this.analysisRequested ?? -99) > (phase === 3 ? 2.5 : 2)) this.requestAnalysis();
-    this.hybrid.update(dt, now, pointerQ, gesture);
+    this.hybrid.update(dt, now, pointerQ, gestures);
     this.field.step(dt, wc.wet, wc.dry);
 
     if (this.digital.active) this.digital.update(dt, now, { mouse: pointerQ, vel: m.vel, speed: m.speed, hybrid: hyb });
     this.ambient(dt, now);
 
     // --- sistemas autónomos: red de physarum y reacción-difusión
-    this.updateStrokeTrail(dt, gesture, phase);
+    this.updateStrokeTrail(dt, gestures, phase);
     const live = phase >= 2;
     // Cursor lento = atraer / sembrar; rápido = dispersar / disolver; quieto = dejarlos ser.
     // En la fase II el cursor no atrae ni dispersa: la red sólo recibe las líneas que engendras.

@@ -3,11 +3,12 @@ import { MouseInputSource } from './MouseInputSource.js';
 /**
  * Normaliza cualquier fuente de entrada (mouse hoy, cuerpo mañana) en un
  * pequeño vocabulario de intenciones:
- *   pointer      posición continua del "pincel" (px de pantalla)
+ *   streams      trazos independientes por fuente: 'mouse' y una por mano (dos manos pintan a la vez)
+ *   pointer      posición del cursor visible (px de pantalla)
  *   hold:start   presión sostenida comenzada en un punto
  *   hold:end     presión liberada o rota por movimiento
  *   tap          clic breve
- *   key          r / h / m / c
+ *   key          r / h / m / c / f
  *   gesture      gestos de mano (bloom, twist, pinch, fist)
  *   pose         pose de dos manos ('apart' | 'together' | null)
  * Las fuentes llaman a los métodos inject*; el resto de la obra sólo escucha eventos.
@@ -15,10 +16,8 @@ import { MouseInputSource } from './MouseInputSource.js';
 export class InputController {
   constructor(element) {
     this.listeners = {};
-    this.samples = [];
-    this.pointer = { x: 0, y: 0, inside: false, down: false, fine: false };
-    this.strokeBreak = false;
-    this.penWasDown = false;
+    this.streams = new Map();
+    this.pointer = { x: 0, y: 0, inside: false, down: false };
     this.press = null;
     this.HOLD_BREAK_PX = 14;
     this.TAP_MAX_S = 0.25;
@@ -31,9 +30,15 @@ export class InputController {
   addSource(source) { this.sources.push(source); }
 
   // --- API para las fuentes ------------------------------------------------
+  stream(id) {
+    let s = this.streams.get(id);
+    if (!s) { s = { id, pts: [], fine: false, down: false, brk: false }; this.streams.set(id, s); }
+    return s;
+  }
+
   injectPointer(x, y) {
-    this.pointer.x = x; this.pointer.y = y; this.pointer.inside = true; this.pointer.fine = false;
-    this.samples.push([x, y]);
+    this.pointer.x = x; this.pointer.y = y; this.pointer.inside = true;
+    this.stream('mouse').pts.push([x, y]);
     if (this.press && !this.press.broken) {
       const d = Math.hypot(x - this.press.x, y - this.press.y);
       if (d > this.HOLD_BREAK_PX) {
@@ -45,22 +50,26 @@ export class InputController {
 
   injectLeave() { this.pointer.inside = false; }
 
-  /** Cursor sin botón (manos): sólo deja trazo con el "lápiz" abajo; al bajarlo se corta el trazo anterior. */
-  injectCursor(x, y, penDown, fine, inside) {
-    if (inside) { this.pointer.x = x; this.pointer.y = y; }
-    this.pointer.inside = inside;
-    this.pointer.fine = fine;
+  /**
+   * Trazo de una fuente sin botón (cada mano): sólo deja marca con el "lápiz" abajo.
+   * Al bajarlo de nuevo se corta el trazo anterior para no unir dos gestos con una línea.
+   */
+  injectStroke(id, x, y, penDown, fine) {
+    const s = this.stream(id);
     if (penDown) {
-      if (!this.penWasDown) this.strokeBreak = true;
-      this.samples.push([x, y]);
+      if (!s.down) s.brk = true;
+      s.pts.push([x, y]);
+      s.fine = fine;
     }
-    this.penWasDown = penDown;
+    s.down = penDown;
   }
 
-  consumeBreak() {
-    const b = this.strokeBreak;
-    this.strokeBreak = false;
-    return b;
+  endStroke(id) { this.streams.delete(id); }
+
+  /** Cursor visible (manos): no deja marca por sí mismo. */
+  setPointer(x, y, inside) {
+    if (inside) { this.pointer.x = x; this.pointer.y = y; }
+    this.pointer.inside = inside;
   }
 
   injectDown(x, y) {
@@ -81,10 +90,14 @@ export class InputController {
 
   injectKey(key) { this.emit('key', key); }
 
-  /** Posiciones acumuladas desde el último cuadro. */
-  consumeSamples() {
-    const s = this.samples;
-    this.samples = [];
-    return s;
+  /** Trazos acumulados desde el último cuadro, uno por fuente. */
+  consumeStreams(out = []) {
+    out.length = 0;
+    for (const s of this.streams.values()) {
+      out.push({ id: s.id, pts: s.pts, fine: s.fine, brk: s.brk });
+      s.pts = [];
+      s.brk = false;
+    }
+    return out;
   }
 }

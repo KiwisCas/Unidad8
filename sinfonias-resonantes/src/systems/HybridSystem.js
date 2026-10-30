@@ -64,7 +64,8 @@ export class HybridSystem {
     return Math.hypot(al / (1 + this.stretch * (al > 0 ? 1 : 0)), pe) < this.radius - 0.05;
   }
 
-  update(dt, now, pointerQ, gesture) {
+  /** gestures: trazos de este cuadro (ratón y cada mano). */
+  update(dt, now, pointerQ, gestures) {
     const field = this.exp.field;
     if (!this.active) { field.u.uHyb.value.w = 0; return; }
     const tr = this.exp.transition;
@@ -88,7 +89,10 @@ export class HybridSystem {
     field.u.uHybDir.value.set(this.dir[0], this.dir[1], this.stretch);
 
     // Canon: el trazo reaparece transformado, como una segunda voz.
-    if (tr.hybrid > 0.5) { this.record(gesture, now); this.emitEcho(now); }
+    if (tr.hybrid > 0.5) {
+      for (const g of gestures) this.record(g, now);
+      this.emitEcho(now);
+    }
   }
 
   get depositAmount() { return this.active ? smooth(0.1, 0.8, this.exp.transition.hybrid) : 0; }

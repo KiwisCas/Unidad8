@@ -65,6 +65,16 @@ BASE_PATH=/Unidad8/ npm run build && npx vite preview --base /Unidad8/
 La cámara se procesa en el propio equipo; no se envía nada. La primera vez descarga el modelo
 (Google) y el motor WASM (jsDelivr), así que necesita conexión y permiso de cámara. El ratón sigue
 funcionando a la vez. Las yemas aparecen como puntos de luz y hay una pequeña vista de la cámara.
+Cada mano tiene su propio pincel, así que se puede pintar con las dos a la vez (y con el ratón).
+
+Para que los gestos sean fiables:
+- cada mano se sigue por su posición (no por la etiqueta izquierda/derecha de MediaPipe, que a veces
+  se repite o se intercambia);
+- los dedos se miden en 3D y en proporción a la propia mano, así que girar o inclinar la palma no cambia
+  el gesto;
+- cada gesto tiene histéresis, y una mano puede perderse ~0,3 s sin cortar su trazo ni la pose;
+- el punto de pintura se suaviza con un filtro One Euro (menos temblor, sin retraso perceptible);
+- abrir la palma admite hasta 0,8 s desde el puño, y el giro exige una rotación acumulada real.
 
 | Gesto | Fase I · acuarela | Fase II · tecnología | Fase III · encuentro |
 |---|---|---|---|
