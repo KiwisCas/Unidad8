@@ -12,6 +12,7 @@ try {
   intro.addEventListener('click', begin);
   intro.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') begin(); });
   document.getElementById('sound').addEventListener('click', () => exp.toggleMute());
+  document.getElementById('handsBtn').addEventListener('click', () => exp.toggleHands());
   if (import.meta.env.DEV) window.__exp = exp;
 } catch (err) {
   console.error(err);

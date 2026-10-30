@@ -24,6 +24,8 @@ uniform sampler2D tTrail;
 uniform sampler2D tRD;
 uniform vec2 uRDTexel;
 uniform float uRDVis;
+uniform float uRupT;
+uniform vec2 uRupO;
 `;
 
 export const canvasVert = UNIFORMS + NOISE + WAVE + FOLDS + /* glsl */ `
@@ -78,6 +80,26 @@ varying vec2 vUv;
 varying vec2 vGradOther;
 varying vec3 vWorld;
 
+// Voronoi (distancia al borde de celda + identificador): las grietas de la ruptura.
+vec2 hash22(vec2 p){ return vec2(hash12(p), hash12(p + 17.31)); }
+vec2 voronoiCrack(vec2 x){
+  vec2 n = floor(x), f = fract(x), mg = vec2(0.0), mr = vec2(0.0);
+  float md = 8.0;
+  for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++){
+    vec2 g = vec2(float(i), float(j));
+    vec2 r = g + hash22(n + g) - f;
+    float d = dot(r, r);
+    if (d < md){ md = d; mr = r; mg = g; }
+  }
+  md = 8.0;
+  for (int j = -2; j <= 2; j++) for (int i = -2; i <= 2; i++){
+    vec2 g = mg + vec2(float(i), float(j));
+    vec2 r = g + hash22(n + g) - f;
+    if (dot(mr - r, mr - r) > 1e-5) md = min(md, dot(0.5*(mr + r), normalize(r - mr)));
+  }
+  return vec2(md, hash12(n + mg));
+}
+
 void main(){
   vec2 q0 = vUv*vec2(uAspect, 1.0);
   vec4 F = texture(tField, vUv);
@@ -91,6 +113,36 @@ void main(){
   float gc = exp(-dot(dc, dc)/0.006)*uCharge.z;
   q -= dc*gc*0.45;
   q += vec2(-dc.y, dc.x)*gc*0.7;
+
+  // RUPTURA — digitalización forzada. Implosión, impacto, grietas que irradian,
+  // fragmentos desplazados, pixelado creciente, color que se escurre y apagón.
+  float rs = uRupT;
+  bool rup = rs >= 0.0 && rs < 8.0;
+  float crack = 0.0, crackFresh = 0.0, drain = 0.0, vanish = 0.0, flash = 0.0;
+  if (rup){
+    vec2 rel = q0 - uRupO;
+    float rd = length(rel);
+    float implode = smoothstep(0.0, 0.55, rs)*(1.0 - smoothstep(0.6, 0.8, rs));
+    q -= rel*implode*0.22*exp(-rd*1.2);
+    vec2 vc = voronoiCrack(q0*vec2(7.0, 9.0) + 3.7);
+    float cid = vc.y;
+    float front = max(0.0, rs - 0.6)*1.15;
+    float reached = 1.0 - smoothstep(front - 0.06, front, rd);
+    float shatter = smoothstep(0.6, 1.1, rs)*(1.0 - smoothstep(5.0, 7.0, rs))*reached;
+    vec2 away = rel/max(rd, 1e-3);
+    q -= (away*(0.006 + 0.03*cid) + vec2(0.0, -0.05*cid*smoothstep(1.5, 5.0, rs)))*shatter;
+    float pix = smoothstep(1.0, 3.2, rs)*(1.0 - smoothstep(5.2, 7.2, rs))*reached;
+    float bs = 0.03*(0.4 + cid)*pix;
+    if (bs > 0.0015) q = (floor(q/bs) + 0.5)*bs;
+    float tear = smoothstep(0.6, 0.68, rs)*(1.0 - smoothstep(0.7, 1.9, rs));
+    float band = floor(q0.y*70.0);
+    q.x += (hash12(vec2(band, floor(rs*24.0))) - 0.5)*0.07*tear*step(0.72, hash12(vec2(band, 3.0)));
+    crack = (1.0 - smoothstep(0.0, 0.012, vc.x))*reached*(1.0 - smoothstep(6.0, 7.5, rs));
+    crackFresh = exp(-max(front - rd, 0.0)*7.0)*step(0.6, rs);
+    drain = smoothstep(0.7, 2.4, rs)*(1.0 - smoothstep(5.6, 7.5, rs));
+    vanish = smoothstep(2.4 + cid*2.2, 3.0 + cid*2.2, rs)*(1.0 - smoothstep(5.8, 7.5, rs))*reached;
+    flash = step(0.6, rs)*(1.0 - smoothstep(0.6, 1.1, rs))*exp(-rd*2.0);
+  }
   vec2 uv = q/vec2(uAspect, 1.0);
   vec2 split = F.rg*0.022*deform/vec2(uAspect, 1.0) + vec2(0.0012, 0.0)*deform;
   vec4 W = texture(tWet, uv);
@@ -116,6 +168,12 @@ void main(){
   float night = max(uTech*(1.0 - hyb), palNight(pk));
   float paperTex = 0.975 + 0.035*P.a;
   vec3 col = renderPigment(A, night, pk, paperTex);
+  if (rup){
+    // El color se escurre y los fragmentos se apagan uno a uno hacia la oscuridad.
+    float g = dot(col, vec3(0.299, 0.587, 0.114));
+    col = mix(col, vec3(g)*vec3(0.92, 0.95, 1.05), drain*0.85);
+    col = mix(col, vec3(0.02, 0.025, 0.05), vanish*0.92);
+  }
 
   vec3 L = normalize(uLight);
   vec3 pn = normalize(vec3(-hx*0.9, -hy*0.9, 1.0));
@@ -173,6 +231,28 @@ void main(){
   float mask = uTech*0.45*smoothstep(0.05, 0.15, dens);
   vec3 lineCol = mix(mix(vec3(0.72, 0.93, 1.0), col*0.55, hyb), hue*1.4 + 0.08, night);
   col = mix(col, lineCol, line*mask*(0.55 + 0.25*(1.0 - uAgitation)));
+
+  if (rup){
+    vec3 crackCol = mix(vec3(0.02, 0.02, 0.04), vec3(0.85, 0.95, 1.0), crackFresh);
+    col = mix(col, crackCol, crack*(0.65 + 0.35*crackFresh));
+    col += vec3(0.9, 0.95, 1.0)*flash*0.6;
+  }
+
+  // Señal de umbral (ratón o manos): hacia la ruptura el mundo se enfría y se apaga
+  // a latidos; hacia el encuentro amanece una luz cálida.
+  float cz = uCharge.z;
+  if (cz > 0.0){
+    float beat = 0.7 + 0.3*sin(uTime*(5.0 + cz*7.0));
+    float far = smoothstep(0.1, 1.0, length(q0 - uCharge.xy));
+    if (uCharge.w < 1.5){
+      float g = dot(col, vec3(0.299, 0.587, 0.114));
+      col = mix(col, vec3(g)*vec3(0.75, 0.8, 0.95), cz*0.6);
+      col *= 1.0 - cz*0.5*far*beat;
+    } else {
+      col = mix(col, col*vec3(1.12, 1.0, 0.8) + vec3(0.14, 0.1, 0.05)*(1.0 - far), cz*0.65*beat);
+      col += vec3(0.55, 0.4, 0.22)*cz*cz*(1.0 - far)*0.55*beat;
+    }
+  }
 
   float vig = length(vUv - 0.5)*1.25;
   col *= 1.0 - mix(0.16, 0.45, night)*pow(vig, 2.2);

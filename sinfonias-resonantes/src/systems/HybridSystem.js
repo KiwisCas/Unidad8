@@ -1,10 +1,9 @@
-import { DIGITAL, PIGMENTS, mixA } from '../palette.js';
+import { DIGITAL, mixA } from '../palette.js';
 import { clamp, smooth } from '../util/math.js';
 
 /**
  * Fase III: interacción bidireccional entre pigmento y estructura.
  *  - Un frente de integración se expande desde el punto elegido, orientado por el gesto.
- *  - Las ramas que crecen depositan pigmento (los bordes se vuelven ramificaciones).
  *  - La reacción-difusión y la red de physarum pintan pigmento complementario.
  *  - Cada trazo recibe una respuesta en canon: un eco espejado, en color armónico.
  *  - El pigmento curva el campo, el campo guía la difusión (bucle en los shaders).
@@ -21,9 +20,6 @@ export class HybridSystem {
     this.radius = 0;
     this.dir = [1, 0];
     this.stretch = 0;
-    this.strokeTravel = 0;
-    this.side = 1;
-    this.ambientT = 0;
     this.echo = [];
     this.echoMode = 0;
   }
@@ -91,60 +87,8 @@ export class HybridSystem {
     field.u.uHyb.value.set(this.origin[0], this.origin[1], this.radius, 1);
     field.u.uHybDir.value.set(this.dir[0], this.dir[1], this.stretch);
 
-    const hyb = tr.hybrid;
-    const an = this.exp.analysis;
-    const aspect = this.exp.aspect;
-
-    // Marcas híbridas: el trazo genera ramificaciones en sus bordes.
-    if (gesture && gesture.A && hyb > 0.3) {
-      this.strokeTravel += gesture.total;
-      const sp = gesture.speed;
-      if (this.strokeTravel > 0.16 && sp > 0.08 && sp < 1.8 && this.insideFront(gesture.pos[0], gesture.pos[1])) {
-        this.strokeTravel = 0;
-        this.side = -this.side;
-        const nx = -gesture.dir[1] * this.side, ny = gesture.dir[0] * this.side;
-        const root = [gesture.pos[0] + nx * 0.012, gesture.pos[1] + ny * 0.012];
-        const pig = mixA(gesture.A, DIGITAL[Math.floor(Math.random() * DIGITAL.length)].A, 0.35);
-        const scale = 0.8 + Math.random() * 0.5;
-        this.exp.digital.spawnTree(root, [nx * 0.8 + gesture.dir[0] * 0.2, ny * 0.8 + gesture.dir[1] * 0.2], pig, now, an, aspect, scale);
-        this.exp.audio.bloom();
-      }
-    }
-
     // Canon: el trazo reaparece transformado, como una segunda voz.
-    if (hyb > 0.5) { this.record(gesture, now); this.emitEcho(now); }
-
-    // Las ramas jóvenes depositan pigmento mientras crecen.
-    let budget = Math.min(6, wc.freeSegments - 2);
-    for (const t of this.exp.digital.trees) {
-      if (budget <= 0) break;
-      const age = now - t.start;
-      for (const p of t.polys) {
-        if (budget <= 0) break;
-        for (let i = Math.max(1, p.done || 1); i < p.pts.length; i++) {
-          if (p.birth[i] > age) break;
-          p.done = i + 1;
-          if (i % 2) continue;
-          const a = p.pts[i - 1], b = p.pts[i];
-          wc.addSegment(a[0], a[1], b[0], b[1], Math.max(0.003, p.width[i] * 0.9), 0.06, 0.05, p.pig, 0.9, Math.random() * 40);
-          if (--budget <= 0) break;
-        }
-      }
-    }
-
-    // La obra sigue descubriendo: nuevas ramificaciones brotan solas de los contornos.
-    this.ambientT += dt * (gesture ? 0.3 : 1);
-    if (hyb > 0.8 && this.ambientT > 7 && an) {
-      this.ambientT = 0;
-      const zones = an.zones.filter((z) => z.boundary.length);
-      if (zones.length) {
-        const z = zones[Math.floor(Math.random() * zones.length)];
-        const b = z.boundary[Math.floor(Math.random() * z.boundary.length)];
-        const pig = mixA(z.A.map((v) => v / Math.max(0.3, (z.A[0] + z.A[1] + z.A[2]) / 3)),
-          PIGMENTS[Math.floor(Math.random() * PIGMENTS.length)].A, 0.3);
-        this.exp.digital.spawnTree([b[0], b[1]], [b[2], b[3]], pig, now, an, aspect, 1.1);
-      }
-    }
+    if (tr.hybrid > 0.5) { this.record(gesture, now); this.emitEcho(now); }
   }
 
   get depositAmount() { return this.active ? smooth(0.1, 0.8, this.exp.transition.hybrid) : 0; }

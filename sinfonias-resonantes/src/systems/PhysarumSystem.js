@@ -23,7 +23,7 @@ export class PhysarumSystem {
       tAgent: { value: null }, tTrail: { value: null }, tDry: { value: null }, tWet: { value: null }, tField: { value: null },
       uAspect: { value: 1 }, uDt: { value: 0.016 }, uTime: { value: 0 }, uActive: { value: 0 },
       uGrowR: { value: 0 }, uOrigin: { value: new THREE.Vector2() }, uHybrid: { value: 0 },
-      uSpawnRate: { value: 0.03 }, uStrokeSpawn: { value: 0 },
+      uSpawnRate: { value: 0.03 }, uStrokeSteal: { value: 0 },
       uMouse: { value: new THREE.Vector4(-9, -9, 0, 0) },
       uStroke: { value: this.strokes }, uStrokeCount: { value: 0 },
       uSA: { value: 0.62 }, uRA: { value: 0.38 }, uSD: { value: 0.011 }, uSpeed: { value: 0.085 },
@@ -73,11 +73,15 @@ export class PhysarumSystem {
 
   get trail() { return this.trails[0].texture; }
 
+  /** Puntos del gesto: [x, y, t, dx, dy]. Los agentes reclutados siguen esa dirección. */
   setStrokes(list) {
     const n = Math.min(16, list.length);
-    for (let i = 0; i < n; i++) this.strokes[i].set(list[i][0], list[i][1], 0, 0);
+    for (let i = 0; i < n; i++) this.strokes[i].set(list[i][0], list[i][1], list[i][3] || 0, list[i][4] || 0);
     this.u.uStrokeCount.value = n;
   }
+
+  /** Estallido de un cuadro: muchos agentes nacen a la vez desde esos puntos/direcciones. */
+  burst(points) { this.pendingBurst = points; }
 
   update(dt, c) {
     if (!c.active && !this.active) return;
@@ -91,7 +95,15 @@ export class PhysarumSystem {
     u.uOrigin.value.set(c.origin[0], c.origin[1]);
     u.uHybrid.value = c.hybrid;
     u.uSpawnRate.value = c.spawnRate;
-    u.uStrokeSpawn.value = c.strokeSpawn;
+    u.uStrokeSteal.value = c.strokeSteal;
+    if (this.pendingBurst) {
+      // Varias direcciones por punto: abanico radial desde cada yema.
+      const pts = this.pendingBurst.slice(0, 16);
+      for (let i = 0; i < pts.length; i++) this.strokes[i].set(...pts[i]);
+      u.uStrokeCount.value = pts.length;
+      u.uStrokeSteal.value = 0.025;
+      this.pendingBurst = null;
+    }
     u.uMouse.value.copy(c.mouse);
     u.tDry.value = c.dry; u.tWet.value = c.wet; u.tField.value = c.field;
     u.tTrail.value = this.trails[0].texture;

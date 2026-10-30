@@ -24,7 +24,7 @@ uniform float uGrowR;
 uniform vec2 uOrigin;
 uniform float uHybrid;
 uniform float uSpawnRate;
-uniform float uStrokeSpawn;
+uniform float uStrokeSteal;
 uniform vec4 uMouse;
 uniform vec4 uStroke[16];
 uniform int uStrokeCount;
@@ -47,40 +47,51 @@ float sense(vec2 q){
 void main(){
   vec4 a = texture(tAgent, vUv);
   float t = uTime;
+  // El gesto recluta agentes: nacen sobre el trazo con su misma dirección como
+  // "caminantes jóvenes" (w > 1) que avanzan rectos y luego la red los absorbe.
+  // uStroke: xy = posición, zw = dirección del gesto.
+  if (uActive > 0.5 && uStrokeCount > 0 && hash12(vUv*7.3 + t*2.1) < uStrokeSteal){
+    int k = int(floor(hash12(vUv*19.1 + t)*float(uStrokeCount)));
+    vec4 st = uStroke[k];
+    vec2 cand = st.xy + (vec2(hash12(vUv*3.7 + t), hash12(vUv*8.9 - t)) - 0.5)*0.008;
+    float head = length(st.zw) > 1e-4 ? atan(st.w, st.z) : hash12(vUv + t)*6.2831853;
+    oAgent = vec4(cand, head + (hash12(vUv*5.3 - t) - 0.5)*1.3, 2.0);
+    return;
+  }
   if (a.w <= 0.0){
     oAgent = a;
     if (uActive < 0.5 || hash12(vUv*311.7 + t*1.37) > uSpawnRate) return;
     vec2 cand = vec2(hash12(vUv*53.1 + t), hash12(vUv*91.7 - t*0.7))*vec2(uAspect, 1.0);
-    bool fromStroke = false;
-    if (uStrokeCount > 0 && hash12(vUv*7.3 + t*2.1) < uStrokeSpawn){
-      int k = int(floor(hash12(vUv*19.1 + t)*float(uStrokeCount)));
-      cand = uStroke[k].xy + (vec2(hash12(vUv*3.7 + t), hash12(vUv*8.9 - t)) - 0.5)*0.04;
-      fromStroke = true;
-    }
     bool inside = length(cand - uOrigin) < uGrowR;
-    if (fromStroke || (inside && (food(cand) > 0.08 || hash12(vUv*3.3 + t) < 0.04)))
+    if (inside && (food(cand) > 0.08 || hash12(vUv*3.3 + t) < 0.04))
       oAgent = vec4(cand, hash12(vUv + t)*6.2831853, 1.0);
     return;
   }
   vec2 p = a.xy;
   float ang = a.z;
-  float sa = uSA, ra = uRA*min(uDt*60.0, 2.0);
-  float sF = sense(p + vec2(cos(ang), sin(ang))*uSD);
-  float sL = sense(p + vec2(cos(ang + sa), sin(ang + sa))*uSD);
-  float sR = sense(p + vec2(cos(ang - sa), sin(ang - sa))*uSD);
   float rnd = hash12(vUv*131.1 + t*3.7);
-  if (sF > sL && sF > sR) ang += (rnd - 0.5)*0.1;
-  else if (sF < sL && sF < sR) ang += (rnd - 0.5)*2.0*ra;
-  else if (sL > sR) ang += ra;
-  else ang -= ra;
+  bool young = a.w > 1.0;
+  if (young){
+    // Trazo propio: casi recto, con leve ondulación.
+    ang += (rnd - 0.5)*0.12;
+  } else {
+    float sa = uSA, ra = uRA*min(uDt*60.0, 2.0);
+    float sF = sense(p + vec2(cos(ang), sin(ang))*uSD);
+    float sL = sense(p + vec2(cos(ang + sa), sin(ang + sa))*uSD);
+    float sR = sense(p + vec2(cos(ang - sa), sin(ang - sa))*uSD);
+    if (sF > sL && sF > sR) ang += (rnd - 0.5)*0.1;
+    else if (sF < sL && sF < sR) ang += (rnd - 0.5)*2.0*ra;
+    else if (sL > sR) ang += ra;
+    else ang -= ra;
+  }
   vec2 F = texture(tField, toUv(p)).rg;
-  p += (vec2(cos(ang), sin(ang))*uSpeed + F*0.5)*uDt;
+  p += (vec2(cos(ang), sin(ang))*uSpeed*(young ? 1.6 : 1.0) + F*0.5)*uDt;
   if (p.x < 0.003 || p.x > uAspect - 0.003){ ang = 3.14159265 - ang; p.x = clamp(p.x, 0.003, uAspect - 0.003); }
   if (p.y < 0.003 || p.y > 0.997){ ang = -ang; p.y = clamp(p.y, 0.003, 0.997); }
-  float life = a.w - uDt*0.012;
+  float life = young ? max(1.0, a.w - uDt*0.7) : a.w - uDt*0.012;
   if (uActive < 0.5) life -= uDt*0.6;
   // Renovación lenta: la red nunca se congela.
-  if (hash12(vUv*77.7 + t*0.91) < 0.0015) life = 0.0;
+  if (!young && hash12(vUv*77.7 + t*0.91) < 0.0015) life = 0.0;
   oAgent = vec4(p, ang, life);
 }
 `;
@@ -124,5 +135,5 @@ precision highp float;
 in float vAlive;
 out vec4 oTrail;
 uniform float uDeposit;
-void main(){ oTrail = vec4(uDeposit*min(vAlive*4.0, 1.0), 0.0, 0.0, 0.0); }
+void main(){ oTrail = vec4(uDeposit*min(vAlive*4.0, 1.0)*(vAlive > 1.0 ? 2.5 : 1.0), 0.0, 0.0, 0.0); }
 `;

@@ -7,14 +7,18 @@ import { MouseInputSource } from './MouseInputSource.js';
  *   hold:start   presión sostenida comenzada en un punto
  *   hold:end     presión liberada o rota por movimiento
  *   tap          clic breve
- *   key          r / h / m
+ *   key          r / h / m / c
+ *   gesture      gestos de mano (bloom, twist, pinch, fist)
+ *   pose         pose de dos manos ('apart' | 'together' | null)
  * Las fuentes llaman a los métodos inject*; el resto de la obra sólo escucha eventos.
  */
 export class InputController {
   constructor(element) {
     this.listeners = {};
     this.samples = [];
-    this.pointer = { x: 0, y: 0, inside: false, down: false };
+    this.pointer = { x: 0, y: 0, inside: false, down: false, fine: false };
+    this.strokeBreak = false;
+    this.penWasDown = false;
     this.press = null;
     this.HOLD_BREAK_PX = 14;
     this.TAP_MAX_S = 0.25;
@@ -28,7 +32,7 @@ export class InputController {
 
   // --- API para las fuentes ------------------------------------------------
   injectPointer(x, y) {
-    this.pointer.x = x; this.pointer.y = y; this.pointer.inside = true;
+    this.pointer.x = x; this.pointer.y = y; this.pointer.inside = true; this.pointer.fine = false;
     this.samples.push([x, y]);
     if (this.press && !this.press.broken) {
       const d = Math.hypot(x - this.press.x, y - this.press.y);
@@ -40,6 +44,24 @@ export class InputController {
   }
 
   injectLeave() { this.pointer.inside = false; }
+
+  /** Cursor sin botón (manos): sólo deja trazo con el "lápiz" abajo; al bajarlo se corta el trazo anterior. */
+  injectCursor(x, y, penDown, fine, inside) {
+    if (inside) { this.pointer.x = x; this.pointer.y = y; }
+    this.pointer.inside = inside;
+    this.pointer.fine = fine;
+    if (penDown) {
+      if (!this.penWasDown) this.strokeBreak = true;
+      this.samples.push([x, y]);
+    }
+    this.penWasDown = penDown;
+  }
+
+  consumeBreak() {
+    const b = this.strokeBreak;
+    this.strokeBreak = false;
+    return b;
+  }
 
   injectDown(x, y) {
     this.pointer.down = true;

@@ -50,16 +50,39 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--paper)
   transition: opacity 0.4s ease;
 }
 
-#sound {
-  position: fixed; right: 24px; bottom: 22px; background: none; border: 0; padding: 6px 4px; cursor: pointer;
-  font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em; color: var(--ink-soft);
+.controls { position: fixed; right: 24px; bottom: 22px; display: flex; gap: 18px; }
+.controls button {
+  background: none; border: 0; padding: 6px 4px; cursor: pointer;
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em; color: #fff;
+  mix-blend-mode: difference; opacity: 0.55;
 }
-#sound:hover, #sound:focus-visible { color: var(--ink); outline: none; }
+.controls button:hover, .controls button:focus-visible { opacity: 0.95; outline: none; }
+
+/* Manos: luces en las yemas, anillo de umbral entre ambas manos, vista de cámara. */
+#hands .tip {
+  position: fixed; left: -5px; top: -5px; width: 10px; height: 10px; border-radius: 50%; pointer-events: none;
+  background: rgba(255, 255, 255, 0.85); box-shadow: 0 0 10px 3px rgba(140, 200, 255, 0.55);
+  mix-blend-mode: screen; transition: opacity 0.2s ease; opacity: 0;
+}
+#hands .tip.pen { width: 14px; height: 14px; left: -7px; top: -7px; background: #fff; box-shadow: 0 0 14px 5px rgba(255, 210, 160, 0.7); }
+#ring {
+  position: fixed; left: 0; top: 0; border-radius: 50%; pointer-events: none; opacity: 0;
+  --p: 0; --c: 200, 220, 255;
+  background: conic-gradient(rgba(var(--c), 0.85) calc(var(--p) * 1turn), rgba(var(--c), 0.12) 0);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
+  transition: opacity 0.4s ease;
+}
+#cam {
+  position: fixed; left: 16px; top: 16px; width: 168px; border-radius: 6px; transform: scaleX(-1);
+  opacity: 0; pointer-events: none; transition: opacity 0.6s ease; filter: grayscale(1) contrast(1.1);
+}
+#cam.on { opacity: 0.28; }
 
 #fatal { position: fixed; inset: 0; display: none; place-items: center; font-family: var(--mono); font-size: 13px; padding: 16px; text-align: center; }
 #fatal.on { display: grid; }
 
 @media (max-width: 600px) {
   .hint { left: 16px; bottom: 56px; }
-  #sound { right: 16px; }
+  .controls { right: 16px; }
 }

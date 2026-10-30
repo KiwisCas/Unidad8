@@ -28,6 +28,7 @@ export class VisualComposition {
       uLight: { value: new THREE.Vector3(-0.45, 0.55, 0.7).normalize() },
       tWet: { value: null }, tDry: { value: null }, tField: { value: null }, tPaper: { value: null },
       tTrail: { value: null }, uRelief: { value: 0 }, uNetGlow: { value: 0 },
+      uRupT: { value: -1 }, uRupO: { value: new THREE.Vector2() },
       tRD: { value: null }, uRDTexel: { value: new THREE.Vector2(1 / 560, 1 / 330) }, uRDVis: { value: 0 },
     };
     // Las paletas añaden sus uniforms al registro antes de crear cualquier material.
@@ -90,7 +91,8 @@ export class VisualComposition {
   }
 
   /** Paralaje suave sólo cuando existe profundidad (fases II y III). */
-  updateCamera(dt, time, depth, pointerNdc) {
+  /** shake: temblor de cámara (impacto de la ruptura, umbral sostenido). */
+  updateCamera(dt, time, depth, pointerNdc, shake = 0) {
     // La vista se desplaza ~0.6× el movimiento de cámara: nunca más que el margen de sobrebarrido.
     const margin = (1 - OVERSCAN) * 0.5 * WORLD_SCALE * 1.4;
     const mx = margin * Math.min(1, this.aspect), my = margin * Math.min(1, 1 / this.aspect);
@@ -99,8 +101,10 @@ export class VisualComposition {
     const k = Math.min(1, dt * 0.8);
     this.drift.x += (tx - this.drift.x) * k;
     this.drift.y += (ty - this.drift.y) * k;
-    this.camera.position.set(this.drift.x, this.drift.y, this.camDist);
-    this.lookTarget.set(this.drift.x * 0.6, this.drift.y * 0.6, 0);
+    const sx = shake * (Math.sin(time * 71.3) * 0.6 + Math.sin(time * 43.7 + 1.1) * 0.4) * 0.12;
+    const sy = shake * (Math.sin(time * 63.1 + 2.3) * 0.6 + Math.sin(time * 37.9) * 0.4) * 0.12;
+    this.camera.position.set(this.drift.x + sx, this.drift.y + sy, this.camDist);
+    this.lookTarget.set(this.drift.x * 0.6 + sx * 0.3, this.drift.y * 0.6 + sy * 0.3, 0);
     this.camera.lookAt(this.lookTarget);
   }
 

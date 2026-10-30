@@ -92,9 +92,11 @@ export class Brush {
 
     const s = smooth(0.06, 1.5, this.speed);
     const dtScale = Math.min(dt * 60, 2.5);
-    const r = lerp(0.0075, 0.03, s) * (0.85 + 0.3 * noise1(this.t * 1.7 + this.seed));
+    // Pinza (manos): trazo fino y más cargado de pigmento.
+    const fine = opts.fine ? 0.35 : 1;
+    const r = lerp(0.0075, 0.03, s) * (0.85 + 0.3 * noise1(this.t * 1.7 + this.seed)) * fine;
     const water = lerp(0.2, 0.55, s) * dtScale;
-    const pig = lerp(0.3, 0.11, s) * amount * dtScale;
+    const pig = lerp(0.3, 0.11, s) * amount * dtScale * (opts.fine ? 1.5 : 1);
     const irr = lerp(0.35, 1.0, s);
 
     info.segs = [];

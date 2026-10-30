@@ -62,6 +62,7 @@ uniform vec3 uNetA;
 uniform vec4 uDissolve;
 uniform sampler2D tRD;
 uniform float uRDDeposit;
+uniform vec4 uBlot;
 ${NOISE}
 const vec2 OFF[8] = vec2[8](vec2(1.0, 0.0), vec2(-1.0, 0.0), vec2(0.0, 1.0), vec2(0.0, -1.0),
                             vec2(1.0, 1.0), vec2(-1.0, 1.0), vec2(1.0, -1.0), vec2(-1.0, -1.0));
@@ -181,6 +182,14 @@ void main(){
   vec3 Pn = max(P - dep + lift + pAdd, 0.0);
   wn = clamp(wn + wAdd, 0.0, 1.6);
   vec3 Dn = max(D.rgb + dep - lift, 0.0);
+  // Papel secante (puño en la fase I): absorbe agua y pigmento húmedo, roza el seco.
+  if (uBlot.w > 0.0){
+    float bd = length(q - uBlot.xy)*(0.85 + 0.3*vnoise(q*60.0));
+    float k = clamp((1.0 - smoothstep(uBlot.z*0.6, uBlot.z, bd))*uBlot.w*uDt, 0.0, 1.0);
+    Pn *= 1.0 - k;
+    wn *= 1.0 - k;
+    Dn *= 1.0 - k*0.25;
+  }
   // Cambio de paleta: tras el frente, el cuadro anterior se aclara y deja espacio.
   if (uDissolve.w > 0.0){
     float dd = length(q - uDissolve.xy);

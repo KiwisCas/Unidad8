@@ -11,10 +11,10 @@ import { ReactionSystem } from '../systems/ReactionSystem.js';
 import { TransitionController } from './TransitionController.js';
 import { PerformanceMonitor, QUALITY } from './PerformanceMonitor.js';
 import { InputController } from '../input/InputController.js';
+import { HandInputSource } from '../input/HandInputSource.js';
+import { GestureEffects } from './GestureEffects.js';
 import { AudioController } from '../audio/AudioController.js';
 import { smooth } from '../util/math.js';
-
-const QUOTE = 'No tenemos que destruir lo que fuimos para descubrir lo que podemos llegar a ser.';
 
 /** Estado general: coordina entrada, narrativa, sistemas visuales y sonido. */
 export class ExperienceController {
@@ -40,6 +40,9 @@ export class ExperienceController {
     this.reaction = new ReactionSystem(r, this.floatType);
     this.palette = this.composition.palette;
     this.perf = new PerformanceMonitor(() => this.resize());
+    this.hands = new HandInputSource(this.input);
+    this.gestures = new GestureEffects(this);
+    this.poseHold = false;
 
     this.started = false;
     this.time = 0;
@@ -76,6 +79,32 @@ export class ExperienceController {
     this.brush.reset();
   }
 
+  /** Activa / desactiva las manos (cámara). Todo se procesa en el equipo. */
+  async toggleHands() {
+    if (this.hands.enabled) {
+      this.hands.disable();
+      this.overlay.setHands('off');
+      return;
+    }
+    this.overlay.setHands('loading');
+    try {
+      await this.hands.enable(this.overlay.video);
+      this.overlay.setHands('on');
+      this.overlay.toast('manos activas · separa las manos y mantenlas para la ruptura', 4000);
+    } catch (err) {
+      console.warn(err);
+      this.overlay.setHands('off');
+      this.overlay.toast('no se pudo activar la cámara', 3000);
+    }
+  }
+
+  /** Semilla de gesto: alimenta la red y la reacción-difusión ([x, y, t, dx, dy]). */
+  seedStroke(q, dir = [0, 0]) {
+    const l = Math.hypot(dir[0], dir[1]) || 1;
+    this.strokePts.push([q[0], q[1], this.time, dir[0] / l, dir[1] / l]);
+    if (this.strokePts.length > 16) this.strokePts.shift();
+  }
+
   toggleMute() {
     this.audio.setMuted(!this.audio.muted);
     this.overlay.setSound(!this.audio.muted);
@@ -97,8 +126,22 @@ export class ExperienceController {
       const q = this.composition.screenToQ(x, y, [0, 0]);
       if (q) this.handleTap(q);
     });
+    inp.on('gesture', (g) => this.gestures.handle(g));
+    // Poses de dos manos: separadas -> ruptura (fase I), juntas -> encuentro (fase II).
+    inp.on('pose', ({ pose, mid }) => {
+      if (!this.started) return;
+      const wanted = (pose === 'apart' && tr.phase === 1) || (pose === 'together' && tr.phase === 2);
+      if (wanted && mid) {
+        const q = this.composition.screenToQ(mid[0], mid[1], [0, 0]);
+        if (q && tr.beginHold(q, 0, 1.1 / 1.5)) this.poseHold = true;
+      } else if (this.poseHold) {
+        tr.endHold();
+        this.poseHold = false;
+      }
+    });
     inp.on('key', (k) => {
-      if (k === 'h') this.overlay.toggleHints();
+      if (k === 'c') this.toggleHands();
+      else if (k === 'h') this.overlay.toggleHints();
       else if (k === 'm') this.toggleMute();
       else if (k === 'r' && this.started) {
         if (this.time - this.resetArmed < 3) this.reset();
@@ -111,6 +154,8 @@ export class ExperienceController {
         this.refreshAnalysis();
         this.digital.buildRupture(this.analysis, pos, now, this.aspect);
         this.rupture = { origin: pos.slice(), start: now };
+        this.composition.shared.uRupO.value.set(pos[0], pos[1]);
+        this.poseHold = false;
         this.audio.phaseStart(2);
         this.overlay.setPhase(2);
       } else if (to === 3) {
@@ -118,7 +163,7 @@ export class ExperienceController {
         this.digital.addWave(pos[0], pos[1], 0.006, now);
         this.audio.phaseStart(3);
         this.overlay.setPhase(3);
-        setTimeout(() => this.overlay.toast(QUOTE, 8000, 'quote'), 3500);
+        this.poseHold = false;
       }
     });
   }
@@ -149,6 +194,8 @@ export class ExperienceController {
     this.reaction.reset();
     this.palette.reset();
     this.strokePts = [];
+    this.gestures.reset();
+    this.poseHold = false;
     this.transition.reset();
     this.brush.reset();
     this.analysis = null;
@@ -201,7 +248,7 @@ export class ExperienceController {
       this.strokeTravel += gesture.total;
       if (!pts.length || this.strokeTravel > 0.025) {
         this.strokeTravel = 0;
-        pts.push([gesture.pos[0], gesture.pos[1], this.time]);
+        pts.push([gesture.pos[0], gesture.pos[1], this.time, gesture.dir[0], gesture.dir[1]]);
         if (pts.length > 16) pts.shift();
       }
     }
@@ -221,6 +268,8 @@ export class ExperienceController {
     const Q = QUALITY[this.perf.tier];
 
     // --- entrada -> coordenadas de lienzo
+    this.hands.update(nowMs);
+    if (this.input.consumeBreak()) this.brush.reset();
     const pts = [];
     for (const s of this.input.consumeSamples()) {
       const q = comp.screenToQ(s[0], s[1], [0, 0]);
@@ -230,7 +279,10 @@ export class ExperienceController {
     const pointerQ = p.inside ? comp.screenToQ(p.x, p.y, this.pointerQ) : null;
     this.ndc[0] = (p.x / comp.width) * 2 - 1;
     this.ndc[1] = -(p.y / comp.height) * 2 + 1;
-    if (tr.holding && pointerQ) tr.moveHold(pointerQ);
+    if (this.poseHold && this.hands.poseMid) {
+      const mq = comp.screenToQ(this.hands.poseMid[0], this.hands.poseMid[1], [0, 0]);
+      if (mq) tr.moveHold(mq);
+    } else if (tr.holding && pointerQ) tr.moveHold(pointerQ);
 
     tr.update(dt, now);
     const { tech, hybrid: hyb, phase } = tr;
@@ -239,7 +291,7 @@ export class ExperienceController {
     let gesture = null;
     if (this.started) {
       const amount = phase === 1 ? 1 : phase === 2 ? Math.max(0, 1 - tech * 2.5) : hyb;
-      gesture = this.brush.update(dt, pts, { amount, hybrid: phase === 3 ? hyb : 0 }, wc);
+      gesture = this.brush.update(dt, pts, { amount, hybrid: phase === 3 ? hyb : 0, fine: this.input.pointer.fine }, wc);
     }
     const m = this.mouse;
     if (gesture) {
@@ -256,8 +308,8 @@ export class ExperienceController {
     const agT = smooth(0.05, 1.2, m.speed);
     m.agitation += (agT - m.agitation) * Math.min(1, dt * (agT > m.agitation ? 4 : 0.6));
 
-    // --- el gesto frente a la tecnología: ondas y torsiones, no persecución
-    if (gesture && phase >= 2) {
+    // --- fase III: el gesto ondula y tuerce. En la fase II apenas afecta: sólo engendra líneas.
+    if (gesture && phase === 3) {
       const [x, y] = gesture.pos;
       if (gesture.speed > 1.1 && now - m.lastWave > 0.4) {
         this.digital.addWave(x, y, 0.004 + 0.003 * Math.min(gesture.speed - 1.1, 2), now);
@@ -279,13 +331,15 @@ export class ExperienceController {
     sh.uTech.value = tech;
     sh.uHybrid.value = hyb;
     sh.uAgitation.value = m.agitation;
-    sh.uCharge.value.set(tr.holdPos[0], tr.holdPos[1], charge, 0);
+    // w: hacia qué umbral apunta la carga (1 = ruptura, 2 = encuentro), estable durante la transición.
+    sh.uCharge.value.set(tr.holdPos[0], tr.holdPos[1], charge, tr.trans ? tr.trans.to - 1 : tr.phase);
+    sh.uRupT.value = tr.ruptureT;
 
     // --- campo vectorial
     const fu = this.field.u;
     fu.uTime.value = now; fu.uTech.value = tech; fu.uHybrid.value = hyb;
     fu.uMouse.value.set(pointerQ ? pointerQ[0] : -9, pointerQ ? pointerQ[1] : -9, m.vel[0], m.vel[1]);
-    fu.uMouseGain.value = phase === 2 ? 1 : phase === 3 ? 0.5 : 0;
+    fu.uMouseGain.value = phase === 2 ? 0.15 : phase === 3 ? 0.5 : 0;
     fu.uCharge.value.copy(sh.uCharge.value);
     if (phase === 3 && now - this.analysisTime > 10) this.refreshAnalysis();
     this.hybrid.update(dt, now, pointerQ, gesture);
@@ -298,14 +352,19 @@ export class ExperienceController {
     this.updateStrokeTrail(dt, gesture, phase);
     const live = phase >= 2;
     // Cursor lento = atraer / sembrar; rápido = dispersar / disolver; quieto = dejarlos ser.
-    const mode = !pointerQ || m.idle > 0.4 ? 0 : m.speed > 0.9 ? -1 : m.speed > 0.02 ? 1 : 0;
+    // En la fase II el cursor no atrae ni dispersa: la red sólo recibe las líneas que engendras.
+    const mode = phase !== 3 || !pointerQ || m.idle > 0.4 ? 0 : m.speed > 0.9 ? -1 : m.speed > 0.02 ? 1 : 0;
     this.agentMouse.set(pointerQ ? pointerQ[0] : -9, pointerQ ? pointerQ[1] : -9, m.speed, mode);
-    const growR = live ? (now - this.rupture.start) * 0.28 : 0;
+    this.gestures.agentOverride(this.agentMouse);
+    // La red empieza a crecer cuando el cuadro ya se ha quebrado.
+    const growR = live ? Math.max(0, now - this.rupture.start - 2.6) * 0.3 : 0;
     const agents = {
       time: now, active: live, growR, origin: this.rupture.origin, hybrid: hyb, mouse: this.agentMouse,
       wet: wc.wet, dry: wc.dry, field: this.field.texture,
     };
-    this.physarum.update(dt, { ...agents, spawnRate: 0.04, strokeSpawn: phase === 3 && gesture ? 0.12 : 0 });
+    const steal = tr.ruptureT > 2.6 && gesture ? (phase === 2 ? 0.0016 : 0.0008) : 0;
+    this.physarum.update(dt, { ...agents, spawnRate: 0.04, strokeSteal: steal });
+    if (phase === 2 && steal > 0) this.audio.birth();
     this.reaction.update(dt, { ...agents, seedRate: phase === 3 ? 0.001 : 0.003 }, Q.rdIterations);
     sh.tRD.value = this.reaction.alive > 0 ? this.reaction.texture : null;
     sh.uRDVis.value = smooth(0.2, 1, tech) * (1 - 0.35 * hyb);
@@ -342,7 +401,8 @@ export class ExperienceController {
 
     // --- acuarela
     wc.step(dt, this.field.texture, foot, {
-      advect: hyb * 0.22, aniso: hyb * 0.6, depositAmt,
+      advect: Math.max(hyb * 0.22, this.gestures.swirl * 0.9), aniso: 0, depositAmt,
+      blot: this.gestures.blot.w > 0 ? this.gestures.blot : null,
       // Fase II: el cuadro se marmoliza con el campo (y el gesto lo puede remover).
       dryAdvect: tech * 0.4 * (1 - 0.7 * hyb),
       trail: this.physarum.trails ? this.physarum.trail : null,
@@ -353,10 +413,15 @@ export class ExperienceController {
     sh.tWet.value = wc.wet; sh.tDry.value = wc.dry;
 
     // --- composición
-    comp.updateCamera(dt, now, Math.max(tech, hyb), p.inside ? this.ndc : null);
+    // Temblor: impacto de la ruptura y umbral sostenido.
+    const rs = tr.ruptureT;
+    const impact = rs >= 0.6 && rs < 2.2 ? 1 - smooth(0.6, 2.2, rs) : 0;
+    comp.updateCamera(dt, now, Math.max(tech, hyb), p.inside ? this.ndc : null, impact * 1.3 + tr.charge * tr.charge * 0.6);
     comp.render();
 
-    this.overlay.moveCursor(p.x, p.y, tr.charge, p.inside && this.started);
+    this.gestures.update(dt);
+    this.overlay.moveCursor(p.x, p.y, tr.charge, p.inside && this.started && !this.hands.enabled);
+    this.overlay.drawHands(this.hands, tr.charge, this.poseHold);
     this.audio.update(dt, { tech, hybrid: hyb, speed: m.speed, charge: tr.charge, agitation: m.agitation });
     this.frame++;
   }
