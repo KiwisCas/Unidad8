@@ -146,10 +146,12 @@ void main(){
   vec2 uv = q/vec2(uAspect, 1.0);
   vec2 split = F.rg*0.022*deform/vec2(uAspect, 1.0) + vec2(0.0012, 0.0)*deform;
   vec4 W = texture(tWet, uv);
-  vec3 A;
-  A.r = texture(tDry, uv + split).r + texture(tWet, uv + split).r;
-  A.g = texture(tDry, uv).g + W.g;
-  A.b = texture(tDry, uv - split).b + texture(tWet, uv - split).b;
+  vec3 A = texture(tDry, uv).rgb + W.rgb;
+  // Separación de canales sólo cuando la tecnología deforma (ahorra 4 lecturas en la fase I).
+  if (deform > 0.001){
+    A.r = texture(tDry, uv + split).r + texture(tWet, uv + split).r;
+    A.b = texture(tDry, uv - split).b + texture(tWet, uv - split).b;
+  }
 
   vec4 P = texture(tPaper, vUv);
   float hx = texture(tPaper, vUv + vec2(uPaperTexel.x, 0.0)).r - texture(tPaper, vUv - vec2(uPaperTexel.x, 0.0)).r;
@@ -186,27 +188,32 @@ void main(){
 
   // Reacción-difusión: vetas finas que fluyen desde las manchas hacia el papel,
   // con el tono que transportan desde su origen. Emiten de noche, entintan de día.
-  vec4 RDs = texture(tRD, uv);
-  float rv = RDs.g;
-  float pat = smoothstep(0.18, 0.42, rv)*uRDVis;
-  vec2 rg = vec2(texture(tRD, uv + vec2(uRDTexel.x, 0.0)).g - texture(tRD, uv - vec2(uRDTexel.x, 0.0)).g,
-                 texture(tRD, uv + vec2(0.0, uRDTexel.y)).g - texture(tRD, uv - vec2(0.0, uRDTexel.y)).g);
-  float rEdge = smoothstep(0.05, 0.3, length(rg))*uRDVis;
-  // Las zonas viejas se desvanecen antes de retirarse.
-  float rLife = 1.0 - smoothstep(35.0, 58.0, RDs.b);
-  vec3 rA = mix(palApply(rdHueA(RDs.a), pk), A/max(dens, 0.05)*0.9, 0.35*smoothstep(0.05, 0.3, dens));
-  vec3 rHue = pigHue(rA);
-  vec3 rNight = col + rHue*(pat*0.22 + rEdge*0.45)*rLife;
-  vec3 rDay = col*exp(-rA*(pat*0.28 + rEdge*0.18)*rLife);
-  col = mix(rDay, rNight, night);
+  if (uRDVis > 0.001){
+    vec4 RDs = texture(tRD, uv);
+    float rv = RDs.g;
+    float pat = smoothstep(0.18, 0.42, rv)*uRDVis;
+    vec2 rg = vec2(texture(tRD, uv + vec2(uRDTexel.x, 0.0)).g - texture(tRD, uv - vec2(uRDTexel.x, 0.0)).g,
+                   texture(tRD, uv + vec2(0.0, uRDTexel.y)).g - texture(tRD, uv - vec2(0.0, uRDTexel.y)).g);
+    float rEdge = smoothstep(0.05, 0.3, length(rg))*uRDVis;
+    // Las zonas viejas se desvanecen antes de retirarse.
+    float rLife = 1.0 - smoothstep(35.0, 58.0, RDs.b);
+    vec3 rA = mix(palApply(rdHueA(RDs.a), pk), A/max(dens, 0.05)*0.9, 0.35*smoothstep(0.05, 0.3, dens));
+    vec3 rHue = pigHue(rA);
+    vec3 rNight = col + rHue*(pat*0.22 + rEdge*0.45)*rLife;
+    vec3 rDay = col*exp(-rA*(pat*0.28 + rEdge*0.18)*rLife);
+    col = mix(rDay, rNight, night);
+  }
 
   // Pliegues + relieve: luz rasante, más dramática de noche.
-  float crease, cx, cy;
-  float fe = 0.0015;
-  float f0 = foldHeight(q0, crease);
-  float fx = foldHeight(q0 + vec2(fe, 0.0), cx);
-  float fy = foldHeight(q0 + vec2(0.0, fe), cy);
-  vec2 fg = vec2(fx - f0, fy - f0)/fe;
+  float crease = 0.0, cx, cy;
+  vec2 fg = vec2(0.0);
+  if (uTech > 0.001){
+    float fe = 0.0015;
+    float f0 = foldHeight(q0, crease);
+    float fx = foldHeight(q0 + vec2(fe, 0.0), cx);
+    float fy = foldHeight(q0 + vec2(0.0, fe), cy);
+    fg = vec2(fx - f0, fy - f0)/fe;
+  }
   vec3 n = normalize(vec3(-(fg + vGradOther), 1.0));
   float sh = dot(n, L) - L.z;
   col *= clamp(1.0 + sh*mix(0.75, 1.5, night), 0.5, 1.2);
@@ -215,13 +222,15 @@ void main(){
   col = mix(col, vec3(0.86, 0.97, 1.0), crease*mix(0.45, 0.12, night)*uTech*(1.0 - 0.6*uHybrid));
 
   // Red de physarum: filamentos luminosos de noche, tinta de día.
-  float tr = texture(tTrail, vUv).r;
-  float net = (1.0 - exp(-tr*0.09))*uNetGlow;
-  float core = smoothstep(4.0, 30.0, tr)*uNetGlow;
-  vec3 netGlow = (mix(vec3(0.3, 0.62, 0.95), hue*1.2, 0.8*smoothstep(0.02, 0.3, dens))*net + vec3(0.85, 0.94, 1.0)*core*0.22)*0.8;
-  vec3 inkA = palApply(digitalA(0.5 + 0.5*sin(q0.x*3.0 + q0.y*2.0 + uTime*0.05)), pk);
-  vec3 dayNet = col*exp(-inkA*net*0.9);
-  col = mix(dayNet, col + netGlow, night);
+  if (uNetGlow > 0.001){
+    float tr = texture(tTrail, vUv).r;
+    float net = (1.0 - exp(-tr*0.09))*uNetGlow;
+    float core = smoothstep(4.0, 30.0, tr)*uNetGlow;
+    vec3 netGlow = (mix(vec3(0.3, 0.62, 0.95), hue*1.2, 0.8*smoothstep(0.02, 0.3, dens))*net + vec3(0.85, 0.94, 1.0)*core*0.22)*0.8;
+    vec3 inkA = palApply(digitalA(0.5 + 0.5*sin(q0.x*3.0 + q0.y*2.0 + uTime*0.05)), pk);
+    vec3 dayNet = col*exp(-inkA*net*0.9);
+    col = mix(dayNet, col + netGlow, night);
+  }
 
   // Lectura algorítmica: curvas de nivel del pigmento (topografía luminosa de noche).
   float lev = dens*6.0;

@@ -61,6 +61,9 @@ export class HandInputSource {
   update(nowMs) {
     if (!this.enabled || !this.video || this.video.readyState < 2) return;
     if (this.video.currentTime === this.lastVideoTime) return;
+    // Como mucho 25 detecciones por segundo: la detección comparte GPU con la obra.
+    if (nowMs - (this.lastDetect || 0) < 40) return;
+    this.lastDetect = nowMs;
     this.lastVideoTime = this.video.currentTime;
     const res = this.landmarker.detectForVideo(this.video, nowMs);
     const list = (res.landmarks || []).map((lm, i) => ({

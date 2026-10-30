@@ -13,6 +13,7 @@ export class Overlay {
     this.toastEl = document.getElementById('toast');
     this.soundBtn = document.getElementById('sound');
     this.handsBtn = document.getElementById('handsBtn');
+    this.statsEl = document.getElementById('stats');
     this.video = document.getElementById('cam');
     this.handsEl = document.getElementById('hands');
     this.ring = document.getElementById('ring');
@@ -89,6 +90,13 @@ export class Overlay {
     } else {
       this.ring.style.opacity = '0';
     }
+  }
+
+  /** Indicador de rendimiento (tecla F): fps reales y nivel de calidad activo. */
+  toggleStats() { this.statsOn = !this.statsOn; this.statsEl.classList.toggle('on', this.statsOn); }
+
+  updateStats(fps, tier, tiers) {
+    if (this.statsOn) this.statsEl.textContent = `${fps} fps · calidad ${tiers - tier}/${tiers}`;
   }
 
   setSound(on) { this.soundBtn.textContent = on ? 'sonido · sí' : 'sonido · no'; }

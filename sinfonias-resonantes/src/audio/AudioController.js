@@ -62,6 +62,7 @@ export class AudioController {
     this.reverb.connect(rv).connect(this.master);
     this.dry = ctx.createGain(); this.dry.connect(this.master);
     this.send = ctx.createGain(); this.send.connect(this.reverb);
+    this.buses = new Map();
     this.noise = this.noiseBuffer(4);
 
     // Aire y agua.
@@ -117,9 +118,17 @@ export class AudioController {
     this.nextChord = ctx.currentTime + BAR;
   }
 
+  /** Envía un nodo a la mezcla seca/reverberada. Los buses se reutilizan por combinación. */
   out(node, dryAmt, wetAmt) {
-    const d = this.ctx.createGain(); d.gain.value = dryAmt; node.connect(d).connect(this.dry);
-    const w = this.ctx.createGain(); w.gain.value = wetAmt; node.connect(w).connect(this.send);
+    const key = dryAmt + '|' + wetAmt;
+    let bus = this.buses.get(key);
+    if (!bus) {
+      bus = this.ctx.createGain();
+      const d = this.ctx.createGain(); d.gain.value = dryAmt; bus.connect(d).connect(this.dry);
+      const w = this.ctx.createGain(); w.gain.value = wetAmt; bus.connect(w).connect(this.send);
+      this.buses.set(key, bus);
+    }
+    node.connect(bus);
   }
 
   impulse(sec) {

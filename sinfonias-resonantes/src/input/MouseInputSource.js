@@ -19,7 +19,7 @@ export class MouseInputSource {
     this.onKey = (e) => {
       if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
       const k = e.key.toLowerCase();
-      if (k === 'r' || k === 'h' || k === 'm' || k === 'c') input.injectKey(k);
+      if (k === 'r' || k === 'h' || k === 'm' || k === 'c' || k === 'f') input.injectKey(k);
     };
     this.onContext = (e) => e.preventDefault();
     el.addEventListener('pointermove', this.onMove);

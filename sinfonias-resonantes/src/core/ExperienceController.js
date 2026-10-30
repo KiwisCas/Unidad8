@@ -61,9 +61,11 @@ export class ExperienceController {
     this.lastShift = -99;
     this.rupture = { origin: [0, 0], start: 0 };
     this.agentMouse = new THREE.Vector4(-9, -9, 0, 0);
+    this.agentCtx = {};
 
     this.wireEvents();
     this.resize();
+    this.warmup();
     let rt = 0;
     window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => this.resize(), 150); });
     this.loop = this.loop.bind(this);
@@ -117,7 +119,8 @@ export class ExperienceController {
       const q = this.composition.screenToQ(x, y, [0, 0]);
       if (!q) return;
       let dens = 0;
-      if (tr.phase === 2) { this.refreshAnalysis(); dens = this.analysis.densAt(q[0], q[1]); }
+      if (tr.phase === 2 && this.analysis) dens = this.analysis.densAt(q[0], q[1]);
+      this.requestAnalysis();
       tr.beginHold(q, dens);
     });
     inp.on('hold:end', () => tr.endHold());
@@ -141,6 +144,7 @@ export class ExperienceController {
     });
     inp.on('key', (k) => {
       if (k === 'c') this.toggleHands();
+      else if (k === 'f') this.overlay.toggleStats();
       else if (k === 'h') this.overlay.toggleHints();
       else if (k === 'm') this.toggleMute();
       else if (k === 'r' && this.started) {
@@ -151,7 +155,8 @@ export class ExperienceController {
 
     tr.on('trigger', (to, pos, now) => {
       if (to === 2) {
-        this.refreshAnalysis();
+        // El análisis se mantiene al día en segundo plano; sólo si aún no hay ninguno se lee en el acto.
+        if (!this.analysis) this.analyzeNow();
         this.digital.buildRupture(this.analysis, pos, now, this.aspect);
         this.rupture = { origin: pos.slice(), start: now };
         this.composition.shared.uRupO.value.set(pos[0], pos[1]);
@@ -168,9 +173,43 @@ export class ExperienceController {
     });
   }
 
-  refreshAnalysis() {
+  /**
+   * Compila todos los programas de GPU mientras se ve la intro. Sin esto, la red,
+   * la reacción-difusión y el análisis se compilarían en mitad de la ruptura (tirón visible).
+   */
+  warmup() {
+    const r = this.composition.renderer;
+    const ph = this.physarum, rd = this.reaction;
+    ph.agentPass.render(r, ph.agents[1]);
+    ph.trailPass.render(r, ph.trails[1]);
+    r.autoClear = false;
+    r.setRenderTarget(ph.trails[1]);
+    r.render(ph.depScene, ph.depCam);
+    r.autoClear = true;
+    rd.u.tState.value = rd.rts[0].texture;
+    rd.pass.render(r, rd.rts[1]);
+    this.analyzer.render(this.watercolor.wet, this.watercolor.dry, this.aspect);
+    r.setRenderTarget(null);
+    r.compile(this.composition.scene, this.composition.camera);
+    ph.reset();
+    rd.reset();
+  }
+
+  /** Lectura síncrona (detiene la GPU): sólo como último recurso. */
+  analyzeNow() {
     this.analysis = this.analyzer.analyze(this.watercolor.wet, this.watercolor.dry, this.aspect);
     this.analysisTime = this.time;
+  }
+
+  /** Pide un análisis sin bloquear: el resultado llega uno o dos cuadros después. */
+  requestAnalysis() {
+    if (this.analyzer.pending) return;
+    const t = this.time;
+    this.analysisRequested = t;
+    this.analyzer.analyzeAsync(this.watercolor.wet, this.watercolor.dry, this.aspect).then((a) => {
+      this.analysis = a;
+      this.analysisTime = t;
+    }).catch(() => {});
   }
 
   handleTap(q) {
@@ -220,10 +259,6 @@ export class ExperienceController {
     this.physarum.resize(aspect);
     this.reaction.resize(aspect);
     this.composition.shared.uRDTexel.value.fromArray(this.reaction.texel);
-    this.footRT?.dispose();
-    this.footRT = new THREE.WebGLRenderTarget(Math.round(simW / 2), Math.round(simH / 2), {
-      type: this.floatType, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false, generateMipmaps: false,
-    });
   }
 
   /** En la fase I, cuando nadie pinta, el papel aún respira: gotas raras que florecen en los bordes. */
@@ -233,7 +268,7 @@ export class ExperienceController {
     this.ambientT += dt;
     if (this.ambientT < 11) return;
     this.ambientT = 0;
-    this.refreshAnalysis();
+    if (!this.analysis) return;
     const zones = this.analysis.zones.filter((z) => z.boundary.length);
     if (!zones.length) return;
     const z = zones[Math.floor(Math.random() * zones.length)];
@@ -341,7 +376,8 @@ export class ExperienceController {
     fu.uMouse.value.set(pointerQ ? pointerQ[0] : -9, pointerQ ? pointerQ[1] : -9, m.vel[0], m.vel[1]);
     fu.uMouseGain.value = phase === 2 ? 0.15 : phase === 3 ? 0.5 : 0;
     fu.uCharge.value.copy(sh.uCharge.value);
-    if (phase === 3 && now - this.analysisTime > 10) this.refreshAnalysis();
+    // Análisis periódico en segundo plano (umbral, gotas ambientales, cobertura).
+    if (this.started && now - (this.analysisRequested ?? -99) > (phase === 3 ? 2.5 : 2)) this.requestAnalysis();
     this.hybrid.update(dt, now, pointerQ, gesture);
     this.field.step(dt, wc.wet, wc.dry);
 
@@ -358,14 +394,16 @@ export class ExperienceController {
     this.gestures.agentOverride(this.agentMouse);
     // La red empieza a crecer cuando el cuadro ya se ha quebrado.
     const growR = live ? Math.max(0, now - this.rupture.start - 2.6) * 0.3 : 0;
-    const agents = {
+    const ag = this.agentCtx;
+    Object.assign(ag, {
       time: now, active: live, growR, origin: this.rupture.origin, hybrid: hyb, mouse: this.agentMouse,
-      wet: wc.wet, dry: wc.dry, field: this.field.texture,
-    };
-    const steal = tr.ruptureT > 2.6 && gesture ? (phase === 2 ? 0.0016 : 0.0008) : 0;
-    this.physarum.update(dt, { ...agents, spawnRate: 0.04, strokeSteal: steal });
-    if (phase === 2 && steal > 0) this.audio.birth();
-    this.reaction.update(dt, { ...agents, seedRate: phase === 3 ? 0.001 : 0.003 }, Q.rdIterations);
+      wet: wc.wet, dry: wc.dry, field: this.field.texture, spawnRate: 0.04,
+      strokeSteal: tr.ruptureT > 2.6 && gesture ? (phase === 2 ? 0.0016 : 0.0008) : 0,
+      seedRate: phase === 3 ? 0.001 : 0.003,
+    });
+    this.physarum.update(dt, ag);
+    if (phase === 2 && ag.strokeSteal > 0) this.audio.birth();
+    this.reaction.update(dt, ag, Q.rdIterations);
     sh.tRD.value = this.reaction.alive > 0 ? this.reaction.texture : null;
     sh.uRDVis.value = smooth(0.2, 1, tech) * (1 - 0.35 * hyb);
     sh.uNetGlow.value = smooth(0.1, 0.8, tech);
@@ -378,8 +416,7 @@ export class ExperienceController {
       this.coverageT += dt;
       if (this.coverageT > 2.5 && !this.palette.transitioning && now - this.lastShift > 14) {
         this.coverageT = 0;
-        this.refreshAnalysis();
-        if (this.analysis.coverage() > 0.42) {
+        if (this.analysis && this.analysisTime > this.lastShift + 3 && this.analysis.coverage() > 0.42) {
           const o = this.strokePts.length ? this.strokePts[this.strokePts.length - 1] : [this.aspect / 2, 0.5];
           this.palette.shift(o);
           this.hybrid.nextEchoMode();
@@ -391,17 +428,9 @@ export class ExperienceController {
 
     sh.tWet.value = wc.wet; sh.tDry.value = wc.dry; sh.tField.value = this.field.texture;
 
-    // --- huellas de pigmento de las estructuras (fase III)
-    let foot = null, depositAmt = 0;
-    if (this.hybrid.active && this.frame % Q.footEvery === 0) {
-      comp.renderFootprint(this.footRT);
-      foot = this.footRT.texture;
-      depositAmt = this.hybrid.depositAmount * Q.footEvery * Math.min(dt * 60, 2);
-    }
-
     // --- acuarela
-    wc.step(dt, this.field.texture, foot, {
-      advect: Math.max(hyb * 0.22, this.gestures.swirl * 0.9), aniso: 0, depositAmt,
+    wc.step(dt, this.field.texture, null, {
+      advect: Math.max(hyb * 0.22, this.gestures.swirl * 0.9), aniso: 0, depositAmt: 0,
       blot: this.gestures.blot.w > 0 ? this.gestures.blot : null,
       // Fase II: el cuadro se marmoliza con el campo (y el gesto lo puede remover).
       dryAdvect: tech * 0.4 * (1 - 0.7 * hyb),
@@ -420,6 +449,7 @@ export class ExperienceController {
     comp.render();
 
     this.gestures.update(dt);
+    if (this.frame % 30 === 0) this.overlay.updateStats(Math.round(1 / this.perf.avg), this.perf.tier, QUALITY.length);
     this.overlay.moveCursor(p.x, p.y, tr.charge, p.inside && this.started && !this.hands.enabled);
     this.overlay.drawHands(this.hands, tr.charge, this.poseHold);
     this.audio.update(dt, { tech, hybrid: hyb, speed: m.speed, charge: tr.charge, agitation: m.agitation });

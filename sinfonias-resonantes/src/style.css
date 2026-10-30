@@ -79,6 +79,12 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--paper)
 }
 #cam.on { opacity: 0.28; }
 
+#stats {
+  position: fixed; left: 16px; bottom: 16px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em;
+  color: #fff; mix-blend-mode: difference; opacity: 0.6; display: none; pointer-events: none;
+}
+#stats.on { display: block; }
+
 #fatal { position: fixed; inset: 0; display: none; place-items: center; font-family: var(--mono); font-size: 13px; padding: 16px; text-align: center; }
 #fatal.on { display: grid; }
 

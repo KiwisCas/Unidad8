@@ -26,15 +26,40 @@ export class RegionAnalyzer {
     this.buf = new Uint8Array(gw * gh * 4);
   }
 
-  analyze(wet, dry, aspect) {
+  render(wet, dry, aspect) {
     this.ensure(aspect);
     const { width: gw, height: gh } = this.rt;
     this.u.tWet.value = wet;
     this.u.tDry.value = dry;
     this.u.uTexel.value.set(1 / gw, 1 / gh);
     this.pass.render(this.renderer, this.rt);
-    this.renderer.readRenderTargetPixels(this.rt, 0, 0, gw, gh, this.buf);
+  }
+
+  /** Lectura síncrona: detiene la GPU. Sólo como último recurso. */
+  analyze(wet, dry, aspect) {
+    this.render(wet, dry, aspect);
+    this.renderer.readRenderTargetPixels(this.rt, 0, 0, this.rt.width, this.rt.height, this.buf);
     this.renderer.setRenderTarget(null);
+    return this.decode(aspect);
+  }
+
+  /**
+   * Lectura asíncrona (PBO + fence): la GPU no se detiene y el resultado llega
+   * uno o dos cuadros después. Sólo hay una lectura en vuelo a la vez.
+   */
+  analyzeAsync(wet, dry, aspect) {
+    if (this.pending) return this.pending;
+    this.render(wet, dry, aspect);
+    const { width: gw, height: gh } = this.rt;
+    this.pending = this.renderer.readRenderTargetPixelsAsync(this.rt, 0, 0, gw, gh, this.buf)
+      .then(() => this.decode(aspect))
+      .finally(() => { this.pending = null; });
+    this.renderer.setRenderTarget(null);
+    return this.pending;
+  }
+
+  decode(aspect) {
+    const { width: gw, height: gh } = this.rt;
     const n = gw * gh;
     const dens = new Float32Array(n);
     const absb = new Float32Array(n * 3);
